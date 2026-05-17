@@ -1,0 +1,28 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets / generated crypto artifacts
+*.pem
+*.key
+*.bin
+.env
+
+# OpenSSL generated demo outputs
+openssl_demo/*.pem
+openssl_demo/*.key
+openssl_demo/*.bin
+
+# AI / local assistant context
+GEMINI.md
+docs/context/
+PROJECT_PROMPTS.md
+
+# Source papers and extracted text
+docs/papers/
+docs/context/extracted/
+
+# Local/editor
+.vscode/
+.DS_Store

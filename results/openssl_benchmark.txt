@@ -1,0 +1,60 @@
+--- OpenSSL Benchmark Results ---
+Date: 05/17/2026 23:50:37
+OpenSSL Version: OpenSSL 3.0.18 30 Sep 2025 (Library: OpenSSL 3.0.18 30 Sep 2025)
+ 
+--- RSA 2048 Benchmark ---
+version: 3.0.18
+built on: Fri Oct  3 10:59:34 2025 UTC
+options: bn(64,64)
+compiler: cl.exe  /Zi /Fdossl_static.pdb /Gs0 /GF /Gy /MD /W3 /wd4090 /nologo /O2 -DL_ENDIAN -DOPENSSL_PIC -D"OPENSSL_BUILDING_OPENSSL" -D"OPENSSL_SYS_WIN32" -D"WIN32_LEAN_AND_MEAN" -D"UNICODE" -D"_UNICODE" -D"_CRT_SECURE_NO_DEPRECATE" -D"_WINSOCK_DEPRECATED_NO_WARNINGS" -D"NDEBUG"
+CPUINFO: OPENSSL_ia32cap=0x7ffaf3bfffebffff:0x40000008029c67af
+                  sign    verify    sign/s verify/s
+rsa 2048 bits 0.000650s 0.000022s   1539.1  45198.2
+ 
+--- RSA 3072 Benchmark ---
+version: 3.0.18
+built on: Fri Oct  3 10:59:34 2025 UTC
+options: bn(64,64)
+compiler: cl.exe  /Zi /Fdossl_static.pdb /Gs0 /GF /Gy /MD /W3 /wd4090 /nologo /O2 -DL_ENDIAN -DOPENSSL_PIC -D"OPENSSL_BUILDING_OPENSSL" -D"OPENSSL_SYS_WIN32" -D"WIN32_LEAN_AND_MEAN" -D"UNICODE" -D"_UNICODE" -D"_CRT_SECURE_NO_DEPRECATE" -D"_WINSOCK_DEPRECATED_NO_WARNINGS" -D"NDEBUG"
+CPUINFO: OPENSSL_ia32cap=0x7ffaf3bfffebffff:0x40000008029c67af
+                  sign    verify    sign/s verify/s
+rsa 3072 bits 0.002208s 0.000044s    452.9  22683.2
+ 
+--- ECDSA secp256k1 Benchmark ---
+version: 3.0.18
+built on: Fri Oct  3 10:59:34 2025 UTC
+options: bn(64,64)
+compiler: cl.exe  /Zi /Fdossl_static.pdb /Gs0 /GF /Gy /MD /W3 /wd4090 /nologo /O2 -DL_ENDIAN -DOPENSSL_PIC -D"OPENSSL_BUILDING_OPENSSL" -D"OPENSSL_SYS_WIN32" -D"WIN32_LEAN_AND_MEAN" -D"UNICODE" -D"_UNICODE" -D"_CRT_SECURE_NO_DEPRECATE" -D"_WINSOCK_DEPRECATED_NO_WARNINGS" -D"NDEBUG"
+CPUINFO: OPENSSL_ia32cap=0x7ffaf3bfffebffff:0x40000008029c67af
+                              sign    verify    sign/s verify/s
+ 256 bits ecdsa (nistp256)   0.0000s   0.0001s  33256.1  12769.3
+ 
+--- Trying secp256k1 directly ---
+version: 3.0.18
+built on: Fri Oct  3 10:59:34 2025 UTC
+options: bn(64,64)
+compiler: cl.exe  /Zi /Fdossl_static.pdb /Gs0 /GF /Gy /MD /W3 /wd4090 /nologo /O2 -DL_ENDIAN -DOPENSSL_PIC -D"OPENSSL_BUILDING_OPENSSL" -D"OPENSSL_SYS_WIN32" -D"WIN32_LEAN_AND_MEAN" -D"UNICODE" -D"_UNICODE" -D"_CRT_SECURE_NO_DEPRECATE" -D"_WINSOCK_DEPRECATED_NO_WARNINGS" -D"NDEBUG"
+CPUINFO: OPENSSL_ia32cap=0x7ffaf3bfffebffff:0x40000008029c67af
+                              sign    verify    sign/s verify/s
+ 160 bits ecdsa (secp160r1)   0.0003s   0.0003s   2919.5   3093.0
+ 192 bits ecdsa (nistp192)   0.0004s   0.0004s   2495.6   2511.7
+ 224 bits ecdsa (nistp224)   0.0005s   0.0005s   1876.2   1942.9
+ 256 bits ecdsa (nistp256)   0.0000s   0.0001s  33081.0  13039.5
+ 384 bits ecdsa (nistp384)   0.0013s   0.0011s    758.8    882.6
+ 521 bits ecdsa (nistp521)   0.0028s   0.0022s    361.1    444.6
+ 163 bits ecdsa (nistk163)   0.0003s   0.0006s   3032.7   1559.8
+ 233 bits ecdsa (nistk233)   0.0005s   0.0010s   2039.2   1017.2
+ 283 bits ecdsa (nistk283)   0.0007s   0.0014s   1455.9    734.4
+ 409 bits ecdsa (nistk409)   0.0012s   0.0023s    858.6    440.9
+ 571 bits ecdsa (nistk571)   0.0024s   0.0050s    420.6    201.9
+ 163 bits ecdsa (nistb163)   0.0003s   0.0006s   3067.3   1589.3
+ 233 bits ecdsa (nistb233)   0.0005s   0.0009s   2157.2   1141.7
+ 283 bits ecdsa (nistb283)   0.0007s   0.0015s   1401.9    682.9
+ 409 bits ecdsa (nistb409)   0.0014s   0.0025s    712.2    397.1
+ 571 bits ecdsa (nistb571)   0.0028s   0.0050s    353.5    200.0
+ 256 bits ecdsa (brainpoolP256r1)   0.0006s   0.0006s   1731.1   1770.4
+ 256 bits ecdsa (brainpoolP256t1)   0.0006s   0.0006s   1622.7   1791.0
+ 384 bits ecdsa (brainpoolP384r1)   0.0013s   0.0011s    779.3    905.3
+ 384 bits ecdsa (brainpoolP384t1)   0.0012s   0.0011s    811.9    899.0
+ 512 bits ecdsa (brainpoolP512r1)   0.0019s   0.0017s    527.6    602.7
+ 512 bits ecdsa (brainpoolP512t1)   0.0019s   0.0016s    530.4    637.8
