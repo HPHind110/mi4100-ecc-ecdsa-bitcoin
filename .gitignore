@@ -16,7 +16,7 @@ openssl_demo/*.bin
 
 # AI / local assistant context
 GEMINI.md
-docs/context/
+docs/context
 PROJECT_PROMPTS.md
 
 # Source papers and extracted text
