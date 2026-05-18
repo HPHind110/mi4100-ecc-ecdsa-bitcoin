@@ -1,5 +1,11 @@
 import sys
 import os
+import shutil
+import subprocess
+import tempfile
+import time
+from math import gcd
+from pathlib import Path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import streamlit as st
@@ -8,7 +14,6 @@ import pandas as pd
 
 from src.ecc import Curve, Point
 from src.ecdsa_toy import ECDSAParams, sign, verify, hash_message_to_int
-from src.nonce_attack import recover_nonce_from_reuse, recover_private_key_from_nonce
 from src.shamir import naive_mul_add, shamir_mul
 
 # ============= CẤU HÌNH TRANG =============
@@ -20,6 +25,8 @@ st.set_page_config(page_title="🔐 ECC/ECDSA - Mô phỏng Tương tác", layou
 TOY_CURVE = Curve(p=223, a=0, b=7)
 GENERATOR_POINT = Point(47, 71)
 ORDER_N = 21
+# TODO: Có thể thay toy curve bằng một subgroup có prime order để demo ECDSA ít edge case hơn.
+# Nhưng khi đổi n phải chọn lại G sao cho order(G) = n.
 ECDSA_PARAMS = ECDSAParams(curve=TOY_CURVE, G=GENERATOR_POINT, n=ORDER_N)
 
 # Danh sách demos
@@ -87,6 +94,179 @@ def render_learning_summary(title, points):
             st.markdown(f"- {point}")
 
 
+def safe_mod_inverse(a, n):
+    """Trả về nghịch đảo modulo nếu tồn tại, ngược lại trả về None."""
+    a = a % n
+    if gcd(a, n) != 1:
+        return None
+    try:
+        return pow(a, -1, n)
+    except ValueError:
+        return None
+
+
+def validate_nonce(k, n):
+    """Kiểm tra nonce k có hợp lệ với modulo n hay không."""
+    if not isinstance(k, int):
+        return False, "Nonce k phải là số nguyên."
+    if not (1 <= k < n):
+        return False, f"Nonce k phải nằm trong khoảng 1 <= k < n, với n = {n}."
+    if gcd(k, n) != 1:
+        return False, (
+            "Nonce k không hợp lệ vì không tồn tại nghịch đảo modulo n. "
+            "Trong ECDSA, k phải khả nghịch modulo n. Với toy demo n = 21 là hợp số "
+            "nên nhiều k không có nghịch đảo; đây là hạn chế của mô hình minh họa, "
+            "không phải lỗi của ECDSA thật."
+        )
+    return True, ""
+
+
+def can_run_reused_nonce_attack(msg1, msg2, h1, h2, r1, s1, r2, s2, n):
+    """Kiểm tra các điều kiện toán học trước khi khôi phục k và d."""
+    if msg1 == msg2:
+        return False, (
+            "Hai thông điệp giống nhau tạo ra cùng hash modulo n và thường tạo ra hai chữ ký "
+            "giống nhau khi dùng cùng nonce. Khi đó ta không có hai phương trình độc lập để "
+            "khôi phục nonce k hoặc private key d. Reused Nonce Attack chỉ có ý nghĩa khi "
+            "cùng một nonce k được dùng cho hai thông điệp khác nhau."
+        )
+    if h1 == h2:
+        return False, (
+            "Hai thông điệp tuy khác nhau nhưng lại có cùng hash modulo n trong toy demo này. "
+            "Vì h1 - h2 = 0, công thức khôi phục nonce không cung cấp đủ thông tin để tìm lại k. "
+            "Đây là do n = 21 quá nhỏ; hãy thử đổi nội dung một trong hai tin nhắn."
+        )
+    if r1 != r2:
+        return False, (
+            "Hai chữ ký không có cùng r, nên UI không xem đây là mẫu reused nonce hợp lệ để tấn công."
+        )
+    if s1 == s2:
+        return False, (
+            "Hai chữ ký có s1 = s2 nên s1 - s2 = 0. Không thể lấy nghịch đảo của 0 modulo n, "
+            "và không đủ thông tin để khôi phục nonce."
+        )
+
+    s_diff = (s1 - s2) % n
+    if gcd(s_diff, n) != 1:
+        return False, (
+            f"Không thể khôi phục nonce vì s1 - s2 = {s_diff} modulo {n} không có nghịch đảo. "
+            "Đây là edge case của toy curve với n = 21 là hợp số. Trong secp256k1 thật, n là "
+            "order nguyên tố rất lớn nên các mẫu hợp lệ không gặp hạn chế này."
+        )
+    if gcd(r1 % n, n) != 1:
+        return False, (
+            f"Không thể khôi phục private key vì r = {r1 % n} không có nghịch đảo modulo {n}. "
+            "Đây là hạn chế của toy curve n = 21, không phải lỗi của ECDSA thật."
+        )
+    return True, ""
+
+
+def get_openssl_path():
+    """Tìm executable OpenSSL trong PATH."""
+    return shutil.which("openssl")
+
+
+def run_openssl_cmd(args, cwd=None):
+    """Chạy lệnh OpenSSL bằng subprocess list args, không dùng shell."""
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=cwd,
+        )
+        return True, result
+    except FileNotFoundError:
+        return False, "Không tìm thấy OpenSSL trong PATH."
+    except subprocess.CalledProcessError as exc:
+        details = (exc.stderr or exc.stdout or "").strip()
+        if not details:
+            details = f"Lệnh trả về mã lỗi {exc.returncode}."
+        return False, f"OpenSSL không thực thi thành công: {details}"
+
+
+def openssl_version(openssl_path):
+    """Lấy chuỗi phiên bản OpenSSL."""
+    ok, result = run_openssl_cmd([openssl_path, "version"])
+    if not ok:
+        return result
+    return result.stdout.strip()
+
+
+def run_openssl_secp256k1_experiment(message: str, iterations: int):
+    """Ký, verify và benchmark ECDSA secp256k1 bằng OpenSSL thật."""
+    openssl_path = get_openssl_path()
+    if not openssl_path:
+        return {"error": "Không tìm thấy OpenSSL trong PATH."}
+
+    iterations = max(1, int(iterations))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        private_key = tmp_path / "ec_private.pem"
+        public_key = tmp_path / "ec_public.pem"
+        message_file = tmp_path / "message.txt"
+        signature_file = tmp_path / "sig.bin"
+
+        message_file.write_text(message, encoding="utf-8")
+
+        commands = [
+            [openssl_path, "ecparam", "-name", "secp256k1", "-genkey", "-noout", "-out", private_key.name],
+            [openssl_path, "ec", "-in", private_key.name, "-pubout", "-out", public_key.name],
+            [openssl_path, "dgst", "-sha256", "-sign", private_key.name, "-out", signature_file.name, message_file.name],
+            [openssl_path, "dgst", "-sha256", "-verify", public_key.name, "-signature", signature_file.name, message_file.name],
+        ]
+
+        for command in commands:
+            ok, result = run_openssl_cmd(command, cwd=tmpdir)
+            if not ok:
+                return {"error": result}
+
+        signature_hex = signature_file.read_bytes().hex()
+        version = openssl_version(openssl_path)
+
+        sign_start = time.perf_counter()
+        for _ in range(iterations):
+            ok, result = run_openssl_cmd(
+                [openssl_path, "dgst", "-sha256", "-sign", private_key.name, "-out", signature_file.name, message_file.name],
+                cwd=tmpdir,
+            )
+            if not ok:
+                return {"error": result}
+        sign_total_time = time.perf_counter() - sign_start
+
+        verify_start = time.perf_counter()
+        verify_success = True
+        for _ in range(iterations):
+            ok, result = run_openssl_cmd(
+                [openssl_path, "dgst", "-sha256", "-verify", public_key.name, "-signature", signature_file.name, message_file.name],
+                cwd=tmpdir,
+            )
+            if not ok:
+                verify_success = False
+                return {"error": result}
+        verify_total_time = time.perf_counter() - verify_start
+
+        sign_avg_ms = (sign_total_time / iterations) * 1000
+        verify_avg_ms = (verify_total_time / iterations) * 1000
+
+        return {
+            "openssl_version": version,
+            "curve": "secp256k1",
+            "hash": "SHA-256",
+            "message": message,
+            "signature_hex": signature_hex,
+            "verify_success": verify_success,
+            "sign_total_time": sign_total_time,
+            "sign_avg_ms": sign_avg_ms,
+            "verify_total_time": verify_total_time,
+            "verify_avg_ms": verify_avg_ms,
+            "sign_ops_per_sec": iterations / sign_total_time if sign_total_time > 0 else 0,
+            "verify_ops_per_sec": iterations / verify_total_time if verify_total_time > 0 else 0,
+        }
+
+
 # ============= DEMO 1: ECC TOY CURVE =============
 def demo_ecc_toy_curve():
     """Minh họa các điểm trên đường cong Elliptic."""
@@ -104,7 +284,7 @@ def demo_ecc_toy_curve():
     st.markdown("""
     **Nguyên lý:**
     - Khóa bí mật (Private Key): số nguyên $d$
-    - Khóa công khai (Public Key): điểm $Q$ trên đường cong, tính bằng $Q = d \cdot G$
+    - Khóa công khai (Public Key): điểm $Q$ trên đường cong, tính bằng $Q = d \\cdot G$
     - **One-way function**: Tính $Q$ từ $d$ rất nhanh, nhưng tìm ngược $d$ từ $Q$ là vô cùng khó (ECDLP)
     """)
     
@@ -155,7 +335,7 @@ def demo_ecc_toy_curve():
     
     render_learning_summary("ECC Toy Curve", [
         "Đường cong Elliptic được định nghĩa bởi phương trình $y^2 = x^3 + ax + b$ trên trường hữu hạn",
-        "Phép nhân vô hướng $d \cdot G$ dựa trên phép cộng điểm (Point Addition)",
+        "Phép nhân vô hướng $d \\cdot G$ dựa trên phép cộng điểm (Point Addition)",
         "Độ khó của ECDLP đảm bảo an toàn mật mã"
     ])
 
@@ -267,86 +447,170 @@ def demo_reused_nonce_attack():
     - $d' = (s_1 \\cdot k' - h_1) \\cdot r^{-1} \\pmod n$
     """)
     
+    with st.expander("ℹ️ Lưu ý về toy order n = 21", expanded=True):
+        st.info(
+            "Trong ECDSA thật trên secp256k1, n là order nguyên tố rất lớn. Vì vậy mọi k "
+            "trong khoảng 1 <= k < n đều khả nghịch modulo n. Còn trong toy demo này, "
+            "n = 21 là hợp số nên các giá trị như 3, 7, 14... không có nghịch đảo modulo 21."
+        )
+    
+    col_key, col_nonce = st.columns(2)
+    with col_key:
+        d_victim = int(st.number_input(
+            "🔑 Private key d",
+            min_value=1,
+            max_value=ORDER_N - 1,
+            value=2,
+            step=1,
+        ))
+    with col_nonce:
+        k_reuse = int(st.number_input(
+            "🎲 Nonce k dùng lại",
+            min_value=1,
+            max_value=ORDER_N - 1,
+            value=4,
+            step=1,
+        ))
+    
     col1, col2 = st.columns(2)
     with col1:
         msg1 = st.text_input("📝 Tin nhắn 1", value="Thanh toan 1 BTC cho Alice", max_chars=100)
     with col2:
         msg2 = st.text_input("📝 Tin nhắn 2", value="Thanh toan 2 BTC cho Bob", max_chars=100)
     
-    # Hard-coded demo values (với giải thích)
-    d_victim = 2
-    k_reuse = 4
-    
-    with st.expander("ℹ️ Tại sao hard-coded?"):
-        st.markdown(f"""
-        - **Khóa bí mật của nạn nhân**: d = {d_victim}
-        - **Nonce vô tình bị dùng lại**: k = {k_reuse}
-        
-        Những giá trị này được chọn để đảm bảo tấn công thành công trên đường cong toy nhỏ này.
-        Các giá trị khác có thể không bao giờ trích xuất được khóa bí mật do những hạn chế toán học.
-        """)
-    
     if st.button("⚡ Tiến hành mô phỏng tấn công"):
-        st.info(f"🔍 **Giả sử**: Nạn nhân dùng d = {d_victim} và vô tình dùng lại nonce k = {k_reuse}")
-        
-        try:
-            # Ký 2 tin nhắn với cùng nonce
-            r1, s1 = sign(ECDSA_PARAMS, d_victim, msg1.encode('utf-8'), k=k_reuse)
-            r2, s2 = sign(ECDSA_PARAMS, d_victim, msg2.encode('utf-8'), k=k_reuse)
-            
-            col_sig1, col_sig2 = st.columns(2)
-            with col_sig1:
-                st.info(f"**Chữ ký 1 (msg1):**\n- r₁ = {r1}\n- s₁ = {s1}")
-            with col_sig2:
-                st.info(f"**Chữ ký 2 (msg2):**\n- r₂ = {r2}\n- s₂ = {s2}")
-            
-            if r1 == r2:
-                st.error(f"🚨 **PHÁT HIỆN**: Cả 2 chữ ký đều có r = {r1}! Đây là dấu hiệu nonce bị tái sử dụng!")
-            
-            st.divider()
-            st.subheader("🔓 Quá trình giải mã khóa bí mật")
-            
-            # Recover nonce
-            h1 = hash_message_to_int(msg1.encode('utf-8'), ECDSA_PARAMS.n)
-            h2 = hash_message_to_int(msg2.encode('utf-8'), ECDSA_PARAMS.n)
-            
-            st.write(f"**Bước 1**: Hash của 2 tin nhắn")
-            col_h1, col_h2 = st.columns(2)
-            with col_h1:
-                st.write(f"$h_1 = H(msg_1) = {h1}$")
-            with col_h2:
-                st.write(f"$h_2 = H(msg_2) = {h2}$")
-            
-            k_recovered = recover_nonce_from_reuse(h1, h2, s1, s2, ECDSA_PARAMS.n)
-            st.success(f"✅ **Bước 2**: Phục hồi nonce $k' = {k_recovered}$")
-            if k_recovered == k_reuse:
-                st.caption("✓ Nonce được phục hồi chính xác!")
-            
-            d_recovered = recover_private_key_from_nonce(h1, r1, s1, k_recovered, ECDSA_PARAMS.n)
-            st.success(f"✅ **Bước 3**: Phục hồi khóa bí mật $d' = {d_recovered}$")
-            
-            st.divider()
-            
-            if d_victim == d_recovered:
-                st.success(f"""
-                🎯 **TẤN CÔNG THÀNH CÔNG!**
-                
-                Khóa bí mật đã bị lấy cắp:
-                - Giá trị khôi phục: d' = {d_recovered}
-                - Giá trị thực tế: d = {d_victim}
-                - **Trùng khớp 100%**
-                """)
+        is_valid_nonce, nonce_message = validate_nonce(k_reuse, ECDSA_PARAMS.n)
+        if not is_valid_nonce:
+            st.warning(nonce_message)
+        else:
+            st.info(f"🔍 **Giả sử**: Nạn nhân dùng d = {d_victim} và vô tình dùng lại nonce k = {k_reuse}")
+
+            try:
+                r1, s1 = sign(ECDSA_PARAMS, d_victim, msg1.encode("utf-8"), k=k_reuse)
+                r2, s2 = sign(ECDSA_PARAMS, d_victim, msg2.encode("utf-8"), k=k_reuse)
+            except ValueError as sign_error:
+                raw_message = str(sign_error)
+                if "r=0" in raw_message:
+                    st.warning(
+                        "Tham số đang chọn tạo ra r = 0 nên chữ ký ECDSA không hợp lệ. "
+                        "Đây là edge case của toy curve n = 21; hãy thử private key hoặc nonce khác."
+                    )
+                elif "s=0" in raw_message or "not coprime" in raw_message:
+                    st.warning(
+                        "Tham số đang chọn tạo ra giá trị s không khả nghịch modulo n, nên toy ECDSA "
+                        "không thể tạo chữ ký hợp lệ. Đây là hạn chế của demo n = 21 là hợp số."
+                    )
+                else:
+                    st.warning(
+                        "Không thể tạo chữ ký hợp lệ với tham số hiện tại trên toy curve n = 21. "
+                        "Hãy thử private key, nonce hoặc message khác."
+                    )
             else:
-                st.error("Tấn công thất bại. Giá trị khôi phục không khớp.")
-                
-        except Exception as e:
-            st.error(f"❌ Lỗi mô phỏng: {e}")
+                h1 = hash_message_to_int(msg1.encode("utf-8"), ECDSA_PARAMS.n)
+                h2 = hash_message_to_int(msg2.encode("utf-8"), ECDSA_PARAMS.n)
+
+                col_sig1, col_sig2 = st.columns(2)
+                with col_sig1:
+                    st.info(f"**Chữ ký 1 (msg1):**\n- h₁ = {h1}\n- r₁ = {r1}\n- s₁ = {s1}")
+                with col_sig2:
+                    st.info(f"**Chữ ký 2 (msg2):**\n- h₂ = {h2}\n- r₂ = {r2}\n- s₂ = {s2}")
+
+                if r1 == r2:
+                    st.warning(
+                        f"⚠️ Cả 2 chữ ký đều có r = {r1}. Đây là dấu hiệu nonce k bị dùng lại. "
+                        "Ta cần kiểm tra thêm hash và s1, s2 để xem có đủ điều kiện khôi phục khóa hay không."
+                    )
+
+                st.divider()
+                st.subheader("🔓 Kiểm tra điều kiện khôi phục")
+
+                s_diff_mod = (s1 - s2) % ECDSA_PARAMS.n
+                diagnostic_rows = [
+                    {
+                        "Điều kiện": "msg1 != msg2",
+                        "Giá trị": str(msg1 != msg2),
+                        "Kết luận": "OK" if msg1 != msg2 else "Không đủ hai thông điệp độc lập",
+                    },
+                    {
+                        "Điều kiện": "h1 != h2",
+                        "Giá trị": str(h1 != h2),
+                        "Kết luận": "OK" if h1 != h2 else "Hash collision modulo n; không đủ thông tin khôi phục k",
+                    },
+                    {
+                        "Điều kiện": "r1 == r2",
+                        "Giá trị": str(r1 == r2),
+                        "Kết luận": "OK" if r1 == r2 else "Không có dấu hiệu dùng lại nonce",
+                    },
+                    {
+                        "Điều kiện": "s1 != s2",
+                        "Giá trị": str(s1 != s2),
+                        "Kết luận": "OK" if s1 != s2 else "s1 - s2 = 0; không thể lấy nghịch đảo",
+                    },
+                    {
+                        "Điều kiện": "gcd(s1 - s2, n) == 1",
+                        "Giá trị": f"gcd({s_diff_mod}, {ECDSA_PARAMS.n}) = {gcd(s_diff_mod, ECDSA_PARAMS.n)}",
+                        "Kết luận": "OK" if gcd(s_diff_mod, ECDSA_PARAMS.n) == 1 else "s1 - s2 không khả nghịch modulo n",
+                    },
+                    {
+                        "Điều kiện": "gcd(r1, n) == 1",
+                        "Giá trị": f"gcd({r1 % ECDSA_PARAMS.n}, {ECDSA_PARAMS.n}) = {gcd(r1 % ECDSA_PARAMS.n, ECDSA_PARAMS.n)}",
+                        "Kết luận": "OK" if gcd(r1 % ECDSA_PARAMS.n, ECDSA_PARAMS.n) == 1 else "r1 không khả nghịch modulo n",
+                    },
+                ]
+                st.dataframe(pd.DataFrame(diagnostic_rows), use_container_width=True)
+
+                can_recover, reason = can_run_reused_nonce_attack(
+                    msg1, msg2, h1, h2, r1, s1, r2, s2, ECDSA_PARAMS.n
+                )
+
+                if not can_recover:
+                    st.warning(reason)
+                    st.dataframe(pd.DataFrame([
+                        {"Giá trị": "h1", "Kết quả": h1},
+                        {"Giá trị": "h2", "Kết quả": h2},
+                        {"Giá trị": "r1, s1", "Kết quả": f"{r1}, {s1}"},
+                        {"Giá trị": "r2, s2", "Kết quả": f"{r2}, {s2}"},
+                        {"Giá trị": "k gốc", "Kết quả": k_reuse},
+                        {"Giá trị": "private key gốc", "Kết quả": d_victim},
+                    ]), use_container_width=True)
+                else:
+                    s_diff_inv = safe_mod_inverse(s1 - s2, ECDSA_PARAMS.n)
+                    r_inv = safe_mod_inverse(r1, ECDSA_PARAMS.n)
+
+                    if s_diff_inv is None or r_inv is None:
+                        st.warning(
+                            "Không thể chạy attack vì một mẫu số không có nghịch đảo modulo n. "
+                            "UI đã dừng trước khi gọi công thức khôi phục để tránh lỗi kỹ thuật."
+                        )
+                    else:
+                        k_recovered = ((h1 - h2) * s_diff_inv) % ECDSA_PARAMS.n
+                        d_recovered = ((s1 * k_recovered - h1) * r_inv) % ECDSA_PARAMS.n
+
+                        st.success(f"✅ Khôi phục nonce: k' = {k_recovered}")
+                        st.success(f"✅ Khôi phục private key: d' = {d_recovered}")
+
+                        result_rows = [
+                            {"Giá trị": "h1", "Kết quả": h1},
+                            {"Giá trị": "h2", "Kết quả": h2},
+                            {"Giá trị": "r1, s1", "Kết quả": f"{r1}, {s1}"},
+                            {"Giá trị": "r2, s2", "Kết quả": f"{r2}, {s2}"},
+                            {"Giá trị": "k gốc", "Kết quả": k_reuse},
+                            {"Giá trị": "k khôi phục", "Kết quả": k_recovered},
+                            {"Giá trị": "private key gốc", "Kết quả": d_victim},
+                            {"Giá trị": "private key khôi phục", "Kết quả": d_recovered},
+                        ]
+                        st.dataframe(pd.DataFrame(result_rows), use_container_width=True)
+
+                        if k_recovered == k_reuse and d_recovered == d_victim:
+                            st.success("🎯 **Khớp — tấn công thành công**")
+                        else:
+                            st.error("Không khớp — do giới hạn của toy curve / tham số không phù hợp")
     
     render_learning_summary("Reused Nonce Attack", [
-        "Nonce trong ECDSA phải là **duy nhất** cho từng chữ ký",
-        "Tái sử dụng nonce là **lỗi tham khảo** có thể dẫn đến lộ khóa bí mật",
-        "Bitcoin/Ethereum sử dụng RNG cao cấp để tránh tái sử dụng nonce",
-        "Một số ví cũ có bug nonce đã bị lợi dụng để ăn cắp tiền"
+        "Nonce k trong ECDSA phải là **duy nhất** cho mỗi chữ ký",
+        "Reuse nonce với **hai thông điệp khác nhau** có thể làm lộ private key",
+        "Nếu hai message giống nhau thì không tạo ra hai phương trình độc lập để khôi phục k hoặc d",
+        "Toy curve n = 21 chỉ dùng để minh họa, có nhiều edge case toán học không xuất hiện trong secp256k1 thật"
     ])
 
 
@@ -496,20 +760,17 @@ def parse_benchmark_file(file_path):
 
 
 # ============= DEMO 5: OPENSSL DEMO =============
-def demo_openssl_summary():
-    """Hiển thị kết quả thực nghiệm OpenSSL với visualization."""
-    st.title("5️⃣ Thực nghiệm OpenSSL trên secp256k1")
-    
+def render_static_openssl_benchmark():
+    """Hiển thị kết quả benchmark OpenSSL đã lưu sẵn."""
     st.markdown("""
-    Dự án sử dụng OpenSSL để minh họa quy trình ký ECDSA trên **đường cong chuẩn Bitcoin** (`secp256k1`).
-    Đồng thời benchmark tốc độ so với RSA.
+    Kết quả benchmark cố định từ `results/openssl_benchmark.txt`, dùng để so sánh ECDSA với RSA.
     """)
     
     with st.expander("🔧 Các lệnh đã thực thi"):
         st.code("""
-.\openssl_demo\gen_keys.ps1
-.\openssl_demo\sign_verify.ps1
-.\openssl_demo\benchmark.ps1
+.\\openssl_demo\\gen_keys.ps1
+.\\openssl_demo\\sign_verify.ps1
+.\\openssl_demo\\benchmark.ps1
         """, language="powershell")
     
     benchmark_file = os.path.join("results", "openssl_benchmark.txt")
@@ -696,13 +957,92 @@ def demo_openssl_summary():
         st.warning(f"""
         ⚠️ Không tìm thấy file `results/openssl_benchmark.txt`.
         
-        Để tạo file này, chạy lệnh trong PowerShell:
+        Để tạo file này, chạy lệnh trong PowerShell từ thư mục gốc của repo:
         ```powershell
-        cd f:\CAC_Project
-        .\openssl_demo\benchmark.ps1
+        .\\openssl_demo\\benchmark.ps1
         ```
         """)
+
+
+def demo_openssl_summary():
+    """Hiển thị kết quả thực nghiệm OpenSSL với visualization."""
+    st.title("5️⃣ Thực nghiệm OpenSSL trên secp256k1")
     
+    st.markdown("""
+    Phần này chạy ECDSA thật trên **secp256k1** bằng OpenSSL, khác với toy curve `n = 21`
+    ở các phần trước. `secp256k1` là đường cong được Bitcoin sử dụng. OpenSSL là thư viện
+    tối ưu nên kết quả benchmark phản ánh thực nghiệm hệ thống tốt hơn mô phỏng Python toy.
+    """)
+    
+    tab_static, tab_interactive = st.tabs([
+        " Kết quả benchmark có sẵn",
+        " Thực nghiệm tương tác",
+    ])
+    
+    with tab_static:
+        render_static_openssl_benchmark()
+    
+    with tab_interactive:
+        openssl_path = get_openssl_path()
+        if not openssl_path:
+            st.error("Không tìm thấy OpenSSL trong PATH.")
+            st.info("Hãy cài OpenSSL và đảm bảo lệnh openssl chạy được trong terminal/PowerShell.")
+        else:
+            st.info(f"OpenSSL version: `{openssl_version(openssl_path)}`")
+            message = st.text_area("Message", value="Hello Bitcoin", height=100)
+            iterations = int(st.number_input(
+                "Số lần benchmark",
+                min_value=1,
+                max_value=1000,
+                value=100,
+                step=10,
+            ))
+            
+            if st.button(" Chạy thực nghiệm OpenSSL"):
+                with st.spinner("Đang tạo key, ký, verify và benchmark bằng OpenSSL..."):
+                    result = run_openssl_secp256k1_experiment(message, iterations)
+                
+                if "error" in result:
+                    st.error(result["error"])
+                else:
+                    if result["verify_success"]:
+                        st.success("Verify thành công.")
+                    else:
+                        st.error("Verify thất bại.")
+                    
+                    signature_hex = result["signature_hex"]
+                    signature_display = (
+                        f"{signature_hex[:80]}..." if len(signature_hex) > 80 else signature_hex
+                    )
+                    st.code(signature_display, language="text")
+                    
+                    metrics_df = pd.DataFrame([
+                        {"Metric": "OpenSSL version", "Value": result["openssl_version"]},
+                        {"Metric": "Curve", "Value": result["curve"]},
+                        {"Metric": "Hash", "Value": result["hash"]},
+                        {"Metric": "Verify", "Value": "Success" if result["verify_success"] else "Failed"},
+                        {"Metric": "Sign total time", "Value": f"{result['sign_total_time'] * 1000:.3f} ms"},
+                        {"Metric": "Sign avg", "Value": f"{result['sign_avg_ms']:.3f} ms/op"},
+                        {"Metric": "Sign speed", "Value": f"{result['sign_ops_per_sec']:.2f} ops/s"},
+                        {"Metric": "Verify total time", "Value": f"{result['verify_total_time'] * 1000:.3f} ms"},
+                        {"Metric": "Verify avg", "Value": f"{result['verify_avg_ms']:.3f} ms/op"},
+                        {"Metric": "Verify speed", "Value": f"{result['verify_ops_per_sec']:.2f} ops/s"},
+                    ])
+                    st.dataframe(metrics_df, use_container_width=True)
+                    
+                    chart_df = pd.DataFrame([
+                        {"Operation": "Sign avg ms/op", "Average ms/op": result["sign_avg_ms"]},
+                        {"Operation": "Verify avg ms/op", "Average ms/op": result["verify_avg_ms"]},
+                    ])
+                    fig = px.bar(
+                        chart_df,
+                        x="Operation",
+                        y="Average ms/op",
+                        title="OpenSSL secp256k1: Sign vs Verify",
+                        labels={"Operation": "Thao tác", "Average ms/op": "ms/op"},
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
     render_learning_summary("OpenSSL Demo", [
         "OpenSSL là thư viện mã nguồn mở, được sử dụng rộng rãi trong thực tế",
         "`secp256k1` là đường cong tiêu chuẩn được Bitcoin chọn",
