@@ -1,0 +1,3408 @@
+
+
+===== PAGE 1 =====
+TinyECC: A Conﬁgurable Library for Elliptic Curve Cryptography
+in Wireless Sensor Networks
+An Liu, Peng Ning
+Department of Computer Science
+North Carolina State University
+Raleigh, NC 27695
+Email: {aliu3, pning}@ncsu.edu
+Abstract
+Public Key Cryptography (PKC) has been the enabling tech-
+nology underlying many security services and protocols in tra-
+ditional networks such as the Internet. In the context of wir e-
+less sensor networks, elliptic curve cryptography (ECC), o ne
+of the most efﬁcient types of PKC, is being investigated to pro-
+vide PKC support in sensor network applications so that the
+existing PKC-based solutions can be exploited.
+This paper presents the design, implementation, and eval-
+uation of TinyECC, a conﬁgurable library for ECC opera-
+tions in wireless sensor networks. The primary objective of
+TinyECC is to provide a ready-to-use, publicly available soft-
+ware package for ECC-based PKC operations that can be
+ﬂexibly conﬁgured and integrated into sensor network appli-
+cations. TinyECC provides a number of optimization switches,
+which can turn speciﬁc optimizations on or off based on de-
+velopers’ needs. Different combinations of the optimizati ons
+have different execution time and resource consumptions, giv-
+ing developers great ﬂexibility in integrating TinyECC int o
+sensor network applications. This paper also reports the ex -
+perimental evaluation of TinyECC on several common sensor
+platforms, including MICAz, TelosB, Tmote Sky, and Imote2.
+The evaluation results show the impacts of individual opti-
+mizations on the execution time and resource consumptions,
+and give the most computationally efﬁcient and the most stor-
+age efﬁcient conﬁguration of TinyECC.
+1. Introduction
+Recent technological advances have made it possible to de-
+velop wireless sensor networks consisting of a large numberof
+low-cost, low-power, and multi-functional sensor nodes th at
+communicate over short distances through wireless links [8 ].
+Such sensor networks are ideal candidates for a wide range
+of applications such as monitoring of critical infrastruct ures,
+data acquisition in hazardous environments, and military o p-
+erations. The desirable features of wireless sensor networ ks
+have attracted many researchers to develop protocols and al -
+gorithms that can fulﬁll the requirements of these applications.
+Security services such as authentication and key manage-
+ment are critical to communication security in wireless sensor
+networks as well as the security of sensor network applica-
+tions. In traditional networks such as the Internet, Public Key
+Cryptography (PKC) has been the enabling technology under-
+lying many security services and protocols (e.g., SSL [4] an d
+IPsec [21, 22]). However, in wireless sensor networks, PKC
+has not been widely adopted due to the resource constraints
+on sensor platforms, particularly the limited and depletea ble
+battery power.
+There has been intensive research aimed at developing
+techniques that can bypass PKC operations in sensor net-
+work applications. For example, there has been a substantia l
+amount of research on random key pre-distribution for pair-
+wise key establishment (e.g., [12, 16, 17, 27, 29]) and broad -
+cast authentication (e.g., [28, 30, 38]). However, these al ter-
+native approaches do not offer the same degree of security
+or functionality as PKC. For instance, none of the random
+key pre-distribution schemes can guarantee key establishment
+between any two nodes and tolerate arbitrary node compro-
+mises at the same time. As another example, the aforemen-
+tioned broadcast authentication schemes, which are all bas ed
+on TESLA [37], require loose time synchronization, which
+itself is a challenging task to achieve in wireless sensor ne t-
+works. In contrast, PKC can address all these problems eas-
+ily. Pairwise key establishment can always be achieved using,
+for example, the Difﬁe-Hellman (DH) key exchange proto-
+col [15], without suffering from the node compromise prob-
+lem. Similarly, broadcast authentication can be provided with,
+for example, the ECDSA digital signature scheme [9], with-
+out requiring time synchronization. Thus, it is desirable to ex-
+plore the application of PKC on resource constrained sensor
+platforms.
+There have been a few recent attempts to use PKC in wire-
+less sensor networks [19, 26, 31, 40], which demonstrate tha t
+it is feasible to perform limited PKC operations on the current
+
+
+===== PAGE 2 =====
+sensor platforms such as MICAz motes [2]. Elliptic Curve
+Cryptography (ECC) has been the top choice among various
+PKC options due to its fast computation, small key size, and
+compact signatures. For example, to provide equivalent secu-
+rity to 1024-bit RSA, an ECC scheme only needs 160 bits on
+various parameters, such as 160-bit ﬁnite ﬁeld operations and
+160-bit key size [10].
+Despite the recent progress on ECC implementations on
+sensor platforms, all the previous attempts [19, 31, 40] hav e
+limitations. In particular, all these attempts were developed as
+independent packages/applications without seriously con sid-
+ering the resource demands of sensor network applications.
+As a result, developers may found it difﬁcult, and sometimes
+impossible, to integrate an ECC implementation with the sen-
+sor network applications, though the ECC implementation
+may be okay on its own. For example, an ECC implementa-
+tion may require so much RAM that it is impossible to ﬁt both
+the sensor network application and the ECC implementation
+on the same node.
+Moreover, various optimization techniques are available
+to speed up the ECC operations. Such optimizations, how-
+ever, typically will increase the ROM and RAM consump-
+tions, though they may reduce the execution time and energy
+consumption. It is not clear what optimizations should be used
+and how they should be combined to achieve the best trade-off
+among security protection, computation overheads, and sto r-
+age requirements. Additional research is necessary to clar ify
+these issues and facilitate the adoption of ECC-based PKC in
+wireless sensor networks.
+In this paper, we present the design, implementation, and
+evaluation of TinyECC, a conﬁgurable library for ECC oper-
+ations in wireless sensor networks. 1 The primary objective
+of TinyECC is to provide a ready-to-use, publicly available
+software package for ECC-based PKC operations that can be
+ﬂexibly conﬁgured and integrated into sensor network appli-
+cations.
+Targeted at TinyOS [6], TinyECC is written in nesC [18],
+with occasional in-line assembly code to achieve further
+speedup for popular sensor platforms including MICAz [2],
+TelosB [5], Tmote Sky [7], and Imote2 [1]. A unique fea-
+ture of TinyECC is its conﬁgurability. TinyECC includes al-
+most all known optimizations for ECC operations. Each op-
+timization is controlled by a software switch, which can tur n
+the optimization on or off based on developers’ need. Differ -
+ent combinations of optimizations have different ROM/RAM
+consumptions, execution time, and energy consumption. This
+gives the developers great ﬂexibility in integrating TinyE CC
+in their applications.
+To provide guidance in using TinyECC, we perform a se-
+ries of experiments with different combinations of activat ed
+optimizations. To understand the impact of each optimiza-
+1TinyECC 1.0 and its previous versions are publicly availabl e at http:
+//discovery.csc.ncsu.edu/software/TinyECC/.
+tion technique, we compare the execution time, ROM/RAM
+consumptions, and energy consumptions with and without the
+given optimization enabled on MICAz [2], TelosB [5], Tmote
+Sky [7], and Imote2 [1]. In addition, our experiments also
+present the performance results and the resource usages forthe
+most computationally efﬁcient conﬁguration (i.e., fastest exe-
+cution and least energy consumption) and the most storage-
+efﬁcient conﬁguration (i.e., least ROM and RAM usage) of
+TinyECC on these common sensor platforms, respectively.
+The contribution of this paper is two-fold: First, we de-
+velop TinyECC, a conﬁgurable library for ECC operations
+in wireless sensor networks, which allows ﬂexible integration
+of ECC-based PKC in sensor network applications. Second,
+we perform a substantial amount of experimental evaluation
+using representative sensor platforms, including MICAz [2 ],
+TelosB [5], Tmote Sky [7], and Imote2 [1]. The experimental
+results provide useful experience and guidance for developers
+to choose different TinyECC optimizations for their needs.
+The remainder of this paper is organized as follows. Sec-
+tion 2 discusses the design principles of TinyECC. Section 4
+describes the optimization techniques adopted by TinyECC.
+Section 5 discusses the implementation of TinyECC. Section6
+presents the experimental evaluation of TinyECC on MICAz,
+TelosB, Tmote Sky, and Imote2. Section 7 discusses the re-
+lated work, and Section 8 concludes this papers and points out
+some future research directions.
+2. Design Principles
+As mentioned earlier, the primary objective of TinyECC is
+to provide aready-to-use, publicly availablesoftware package
+for ECC-based PKC operations that can be ﬂexibly conﬁgured
+and integrated into sensor network applications. To make sure
+we achieve this objective, we follow several principles in t he
+design and development of TinyECC.
+Security: TinyECC should provide PKC schemes that
+have proved to be secure. To follow this principle, TinyECC
+only includes support for the well-studied ECC schemes
+such as ECDSA, ECDH, and ECIES, which are deﬁned
+in the Standards for Efﬁcient Cryptography [10]. More-
+over, TinyECC also includes elliptic curve parameters recom-
+mended by SECG (Stands for Efﬁcient Cryptography Group),
+such assecp160k1,secp160r1 andsecp160r2, as de-
+ﬁned in [11].
+Portability: TinyECC should run on as many sensor plat-
+forms as possible. Due to this reason, we choose to implement
+TinyECC on TinyOS [6], which is a popular, open-source OS
+for networked sensors. All the TinyECC components have
+nesC [18] implementations, though some modules also in-
+clude inline assembly code, which can be turned on for faster
+execution on some sensor platforms. This allows TinyECC
+to be compiled and used on any sensor platform that can run
+TinyOS. TinyECC has been tested successfully on MICAz,
+2
+
+
+===== PAGE 3 =====
+TelosB, Tmote Sky, and Imote2.
+Resource Awareness and Conﬁgurability: TinyECC
+should accommodate the typical resource constraints on sen -
+sor nodes. Moreover, TinyECC should allow ﬂexible conﬁgu-
+ration so that it can take advantage of the available resourc es
+on a wide spectrum of sensor platforms. To follow this princi-
+ple, TinyECC is implemented carefully to avoid unnecessary
+resource usage. Moreover, TinyECC uses a set of optimization
+switches, which can be turned on or off to achieve different
+combinations of performance and resource consumptions.
+Efﬁciency: TinyECC should be computationally efﬁcient
+to reduce the battery consumption as well as the delay intro-
+duced by PKC operations. We make three design decisions
+to improve the efﬁciency of TinyECC. The ﬁrst is about the
+type of ﬁnite ﬁelds over which the ECC operations are per-
+formed. ECC can be implemented over either a prime ﬁeld
+Fp, where p is a large prime number, or a binary extension
+ﬁeld F2m, where m is an integer. Since arithmetic operations
+over F2m are insufﬁciently supported by microprocessors, we
+choose to support prime ﬁelds Fp in TinyECC. Second, we
+adopt almost all existing optimizations for ECC operations in
+TinyECC. As mentioned earlier, these optimizations can be
+turned on or off to balance the efﬁciency and the resource re-
+quirements. Third, we include inline assembly code in critical
+parts of TinyECC for popular sensor platforms, including MI-
+CAz, TelosB, Tmote Sky, and Imote2.
+Functionality: TinyECC should support the typical de-
+mands for PKC. To follow this principle, the current version
+of TinyECC includes a digital signature scheme (ECDSA), a
+key exchange protocol (ECDH), and a public key encryption
+scheme (ECIES). These cover all typical uses of PKC.
+3. Background on ECC
+In this section, we give a brief introduction to ECC. The
+reader is referred to [20, 41] for more details.
+Elliptic curve cryptography (ECC) is an approach to
+public-key cryptography based on the algebraic structure o f
+elliptic curves over ﬁnite ﬁelds [41]. Elliptic curves used in
+cryptography are typically deﬁned over two types of ﬁnite
+ﬁelds: prime ﬁelds Fp, where p is a large prime number, and
+binary extension ﬁelds F2m. For space reasons, we focus on
+elliptic curves over Fp in this paper.
+An elliptic curve over Fp is deﬁned by a cubic equation
+y2 = x3 +ax +b, where a,b ∈ Fp are constants such that 4a3 +
+27b3 ̸= 0 [20,41]. An elliptic curve over Fp consists of the set
+of all pairs of afﬁne coordinates (x,y) for x,y ∈ Fq that satisfy
+an equation of the above form and an inﬁnity point O. The
+points on an elliptic curve form an abelian group with O as
+the additive identity. (The formulas deﬁning point additio n
+and its special case, point doubling, can be found in [20, 41].)
+For any point G on an elliptic curve, the set
+{O,G,2G,3G, ...} is a cyclic group [20, 41]. The cal-
+culation of kG, where k is an integer, is called a scalar
+multiplication. The problem of ﬁnding k given points kG
+and G is called the elliptic curve discrete logarithm problem
+(ECDLP). It is computationally infeasible to solve ECDLP
+for appropriate parameters [20, 41]. The hardness of ECDLP
+allows several cryptographic schemes based on elliptic
+curves.
+TinyECC includes three well-known ECC schemes:
+(1) the Elliptic Curve Difﬁe-Hellman (ECDH) key agreement
+scheme, (2) the Elliptic Curve Digital Signature Algorithm
+(ECDSA), and (3) the Elliptic Curve Integrated Encryption
+Scheme (ECIES). ECDH is a variant of the Difﬁe-Hellman
+key agreement protocol [15] on elliptic curve groups. ECDSA
+is a variant of the Digital Signature Algorithm (DSA) [35] that
+operates on elliptic curve groups. ECIES is a public-key en-
+cryption scheme which provides semantic security against a n
+adversary who is allowed to use chosen-plaintext and chosen-
+ciphertext attacks [41]. ECIES is also known as the Ellip-
+tic Curve Augmented Encryption Scheme (ECAES) or simply
+the Elliptic Curve Encryption Scheme. These ECC schemes
+allow smaller key sizes for similar security level to the alterna-
+tives such as the original DH and DSA schemes. For each of
+the schemes, a party that would like to use the scheme needs
+to agree on some domain parameters such as the elliptic curve
+and a pointG on the curve, and must have a key pair consisting
+of a private key d and a public key Q = dG. The speciﬁcation
+of ECDH, ECDSA, and ECIES can be found in [10, 20].
+4. Optimizations Adopted by TinyECC
+In this section, we brieﬂy discuss the optimization tech-
+niques adopted by TinyECC. We will omit the details, since
+the focus of this paper is not these individual optimization
+techniques. More information about these techniques can be
+found in the relevant references.
+4.1. Optimizations for Large Integer Operations
+Barrett Reduction [33]: The most straightforward way
+to perform large integer modular reductions is to use divi-
+sion [23]. A nice side effect of such a method is that it reuses
+the code of division, thus resulting in compact code size.
+Barrett Reduction is an alternative method for modular re-
+duction [33]. It converts the reduction modulo an arbitrary
+integer to two multiplications and a few reductions modulo
+integers of the form 2n. When used to reduce a single number,
+Barrett reduction is slower than a normal division algorith m.
+However, when used to reduce various numbers modulo the
+same number many times, by pre-computing some value, Bar-
+rett reduction can achieve faster speed than modular reduc-
+tions obtained by division. Details of Barrett reduction can be
+found in [33].
+In TinyECC, since almost all the modular operations are
+3
+
+
+===== PAGE 4 =====
+modulo the same prime number p, Barrett reduction can po-
+tentially speed up the computation. However, this requiresthe
+implementation of a separate reduction algorithm, which im -
+plies larger code size (i.e., more ROM requirement) on sensor
+nodes. In addition, Barrett reduction also increases the RA M
+consumption. Assume the target microprocessor has a w-bit
+word size. Given a ﬁnite ﬁeld Fp, where p is a k words long
+prime number, Barrett reduction requires the pre-computation
+of µ = ⌊bk
+p ⌋, where b = 2w (e.g., b = 28 on a 8-bit processor).
+This number µ has to be stored and used throughout all the
+modular reductions. Thus, to exchange for faster computa-
+tion, Barrett reduction requires more ROM and RAM than the
+traditional division-based modular reduction.
+Hybrid Multiplication and Hybrid Squaring [19]: Stan-
+dard large integer multiplication algorithms [23] store th e
+operands and the product in arrays. When such an algorithm is
+implemented in a high-level language such as nesC, the com-
+piler cannot use the registers in the microprocessor efﬁciently,
+and the binary code usually needs to load the operands from
+memory to registers multiple times [19]. Gura et al. [19] pro -
+posed a hybrid multiplication algorithm, which was intende d
+for assembly code. This algorithm can maximize the utiliza-
+tion of registers and reduce the number of memory operations.
+TinyECC adopts this hybrid multiplication algorithm for MI -
+CAz [2], TelosB [5]/Tmote Sky [7], and Imote2 [1]. Indeed,
+the code can be used on any sensor platforms that have proces-
+sors using the same instruction sets. The implementation of
+hybrid multiplication has width 4 or 5 for MICAz, depending
+on the curve parameters, and has width 1 for TelosB/Tmote
+Sky and Imote2 due to the small number of registers on them.
+In addition to hybrid multiplication, we also customize the
+hybrid multiplication algorithm for squaring operations by us-
+ing the fact that the two multiplicative operands in squarin g
+are the same. This further reduces the execution time for
+squaring at the cost of larger code size.
+4.2. Optimizations for ECC Operations
+Projective Coordinate Systems [20]: As discussed ear-
+lier, an elliptic curve consists of the inﬁnity point O and the
+set of points in the afﬁne coordinates (x,y) for x,y ∈ Fp that
+satisfy the deﬁning equation. Alternatively, a point on an ellip-
+tic curve can be represented in a projective coordinate system
+in the form of (x,y,z).
+Point addition and point doubling are critical operations in
+ECC, which are buidling blocks for scalar multiplications r e-
+quired by all ECC schemes. These operations in afﬁne co-
+ordinate system require modular inversion operations, whi ch
+are much more expensive than other operations such as modu-
+lar multiplications. Using a projective coordinate system[20],
+modular inversions can be removed with the compensation of
+a few modular multiplications. As a result, the execution times
+of point addition and point doubling based on projective coor-
+dinate system are faster than those based on afﬁne coordinat e
+system, respectively [20].
+TinyECC uses two additional optimizations along with pro-
+jective coordinate representation, which can further redu ce
+both the execution time and the program size. The ﬁrst is a
+mixed point addition algorithm [20], which adds a point in
+projective coordinate and a second point in afﬁne coordinat e.
+This algorithm can be used in scalar multiplications to further
+reduce the number of modular multiplications and squares,
+leading to smaller and faster code. The second is repeated
+Doubling [20] for scalar multiplication. If consecutive point
+doublings are to be performed, the repeated doubling algo-
+rithm may be used to achieve faster performance than repeated
+use of the doubling formula. In m consecutive doublings, this
+algorithm trades m − 1 ﬁeld additions, m − 1 divisions by two,
+and a multiplication for two ﬁeld squarings (in comparison
+with repeated applications of the plain point doubling algo -
+rithm) [20].
+Though reducing the execution time, the projective coordi-
+nate representation requires larger code size (for more com -
+plex formula) and more RAM (for storing additional vari-
+ables) than the afﬁne coordinate system.
+Sliding Window for Scalar Multiplications [20]: Scalar
+multiplication is a basic operation used by all ECC schemes.
+It is in the form of kP, where k is an integer and P is a point
+on an elliptic curve. In the most straightforward method to
+compute kP, k is scanned from the most signiﬁcant bit to the
+least signiﬁcant bit. When each bit is scanned, the algorith m
+needs to compute a point doubling. When the scanned bit is
+“1”, the algorithm also needs to perform a point addition. The
+sliding window method can speed up the scalar multiplication
+by scanning w bits at a time. Each time when a w-bit window
+is scanned, the algorithm needs to perform w point doublings.
+By precomputing 2P, 3P, ..., and (2w − 1)P, the sliding win-
+dow method only needs to perform 1 point addition every w
+bits, and thus has less computational cost.
+It is easy to see that the sliding window method will in-
+crease both the ROM (for additional code size) and RAM (for
+storing the pre-computed points) consumptions.
+Shamir’s Trick [20]: This optimization is only used for
+the veriﬁcation of ECDSA signatures. The veriﬁcation of
+ECDSA signature requires the computation of the form aP +
+bQ, where a,b are integers and P,Q are two points on an el-
+liptic curve. A straightforward implementation requires t wo
+scalar multiplications and a point addition. However, Shamir’s
+trick allows us to compute the above value at a cost close
+to one scalar multiplication. Speciﬁcally, with pre-compu ted
+P + Q, we may scan the (same) bits of a and b from the most
+signiﬁcant one to the least signiﬁcant one. For each bit, we
+need double the intermediate value, which is initialized as the
+inﬁnity point. If the scanned bit positions are ⟨ai = 0,bi = 1⟩,
+⟨ai = 1,bi = 0⟩, or ⟨ai = 1,bi = 1⟩, we add P, Q, or P + Q
+to the intermediate value. This reduces two scalar multipli ca-
+4
+
+
+===== PAGE 5 =====
+tions to a bit more expensive than one such operation.
+Similar to the sliding window method, Shamir’s trick will
+increase both the ROM (for additional code size) and RAM
+(for storing the pre-computed P + Q) consumptions.
+Curve Speciﬁc Optimization [19]: A number of elliptic
+curves speciﬁed by NIST [36] and SECG [11] use pseudo-
+Mersenne primes. A pseudo-Mersenne prime is of the form
+p = 2n − c, where c ≪ 2n. Reduction modulo a pseudo-
+Mersenne prime can be performed by a few modular multi-
+plications and additions without any division operation. A s a
+result, the time for modular reduction can be reduced signif -
+icantly. Thus, using elliptic curves over a pseudo-Mersenn e
+prime can achieve additional performance gain.
+5. Implementation
+We implemented TinyECC on TinyOS [6], an open source
+operating system designed for wireless embedded sensor net-
+works. The current version of TinyECC provides support for
+ECDSA (digital signatures), ECDH (pairwise key establish-
+ment), and ECIES (PKC-based encryption). Most of the code
+were written in nesC [18] for portability reasons. To best har-
+ness the capabilities of the processors on the popular senso r
+platforms such as MICAz and TelosB, we also provided inline
+assembly implementation of some critical operations, such as
+large integer multiplications.
+To save implementation efforts, we ported the C code of
+large integer operations in RSAREF 2.0 [24] to nesC code on
+TinyOS. These include modular addition, subtraction, mul-
+tiplication, division, inverse, and exponentiation opera tions.
+We then implemented all the elliptic curve operations and the
+optimization techniques discussed earlier.
+TinyECC has been released publicly at http://
+discovery.csc.ncsu.edu/software/TinyECC/.
+Some preliminary versions have been adopted by other
+researchers (e.g., [14, 25, 32]). As discussed earlier, sta rting
+from the current version, we added a set of optimization
+switches to provide ﬂexible conﬁguration of TinyECC so that
+it can be integrated into sensor applications with differen t
+resource consumptions and performance demands.
+Table 1 lists the optimization switches available in the cur-
+rent version of TinyECC. Most optimization switches can be
+turned on or off by a simple conﬁguration at compile time,
+or slight modiﬁcation in the source code. A few optimization
+switches requires additional care. Speciﬁcally, for hybrid mul-
+tiplication and squaring techniques, a macro indicating sp e-
+ciﬁc hardware platform (e.g., MICAz, Imote2) should be de-
+ﬁned, so that TinyECC will use the inline assembly code with
+the right instruction set. Moreover, when the sliding windo w
+method is used, an additional parameter deﬁning the size of
+the window (e.g., w = 4) must be deﬁned. Finally, curve spe-
+ciﬁc optimizations only work for pseudo-Mersenne primes.
+Thus, when curve speciﬁc optimization is enabled, a prime
+number in the appropriate form must be deﬁned as well.
+6. Evaluation
+We performed a series of experiments to evaluate TinyECC
+on four representative sensor platforms, including MICAz [2],
+TelosB [5], Tmote Sky [7], and Imote2 [1].
+The objective of these experiments is three-fold: First, we
+would like to measure the performance and resource con-
+sumption of TinyECC on a spectrum of sensor platforms,
+ranging from the low-end ones (such as MICAz, TelosB, and
+Tmote Sky) to high-end ones (such as Imote2). Second,
+we would like to understand the impact of the optimizations
+adopted by TinyECC on the performance and resource con-
+sumption. Finally, we would like to provide detailed perfor -
+mance results and resource demands for the most commonly
+desirable conﬁgurations, including the conﬁguration that pro-
+vides the fastest execution time and the conﬁguration that r e-
+quires the least memory consumption. The former has the
+least energy consumption, while the latter is the easiest on e
+to integrate into sensor applications.
+6.1. Methodology and Experiment Setup
+Evaluation Methodology: Given seven optimization
+switches, four sensor platforms, where Imote2 has multiple
+CPU frequencies due to dynamic voltage scaling, many possi-
+ble elliptic curves, and three ECC-based PKC schemes, there
+are a large number of experiments to perform if we have to ob-
+serve the differences in performance and resource consump-
+tions in all cases.
+To simplify the scenarios, we adopt the following method-
+ology in our experiments. For each optimization switch, we
+perform two sets of experiments, referred to as case A and
+case B, respectively. In case A, we disable all the other opti-
+mizations, and then obtain the performance and resource con-
+sumption metrics when the given optimization is enabled and
+disabled, respectively. In case B, we enable all the other op -
+timizations and obtain the evaluation metrics again when th e
+given optimization is enabled and disabled, respectively. The
+differences in these metrics reﬂect the impact of the given op-
+timization technique.
+Moreover, as discussed earlier, we also perform additional
+experiments to examine in detail two commonly desirable
+conﬁgurations: the one that provides the fastest execution
+time, and the one that requires the least storage.
+Experiment Setup: We evaluate TinyECC on the latest
+CVS version of TinyOS 1.x [6]. As discussed earlier, we
+choose four representative sensor platforms, MICAz, TelosB,
+Tmote Sky, and Imote2, for the experiments, since they are
+popular sensor platforms and cover the 8-bit, 16-bit and 32-bit
+processors. Other sensor platforms (e.g., Mica2, Mica2Dot )
+are expected to perform similarly to one of these platforms,
+5
+
+
+===== PAGE 6 =====
+Table 1. TinyECC Optimization Switches
+Method Optimization Switch Category Description
+Barrett Reduction BARRETT large number Turn this switch on to allow Barrett reduction.
+Hybrid Multiplication HYBRID MULT large number Turn this switch on to allow hybrid multiplication in inline assembly.
+Hybrid Squaring HYBRID SQR large number Turn this switch on to allow hybrid squaring in inline assembly.
+Projective Coordinate System PROJECTIVE EC Turn this switch on to use projective coordinate system alon g with mixed point addition and re-
+peated doubling.
+Sliding Window Method SLIDING WIN EC Turn this switch on to use sliding window method for scalar mu ltiplication. A window size (e.g.
+w = 4) has to be deﬁned along with this switch.
+Shamir’s Trick SHAMIR TRICK EC Turn this switch on to allow Shamir’s trick when verifying EC DSA signatures. A window size
+(e.g. w = 2) has to be deﬁned along with this switch.
+Curve-Speciﬁc Optimization CURVE OPT EC Turn this switch on to allow curve speciﬁcation optimizatio n. This has to be used for the curves
+deﬁned over pseudo-Mersenne primes [11, 36].
+due to their adoption of the same processors.
+TelosB and Tmote Sky have (almost) the same hardware.
+The only difference is that TelosB can only run at 4 MHz,
+while Tmote Sky can run at 8 MHz when an external resis-
+tor is enabled. We conﬁgure Tmote Sky to run at 8 MHz in
+our experiments. As a high-end sensor platform, Imote2 uses
+an XScale processor and supports dynamic voltage scaling.
+To obtain a relatively complete view of Imote2, we use four
+different frequencies on Imote2 in our experiments: 13MHz,
+104MHz, 208MHz, and 416MHz.
+By default, TinyECC includes all 128-bit, 160-bit and
+192-bit ECC parameters recommended by SECG [11]. It
+is well-known that 160-bit ECC has the same security
+level as 1024-bit RSA. We selected a 160-bit elliptic curve
+secp160r1 [11] to evaluate the impact of individual opti-
+mization techniques. Note that the actual selection of curv es
+depends on the security needs in the sensor network applica-
+tions, and is outside of the scope of this paper.
+We used the following evaluation metrics in all experi-
+ments: ROM consumption (byte), RAM consumption (byte),
+execution time (ms), and energy consumption (millijoule).We
+used the check
+size.pl script in the TinyOS distribution
+to obtain the ROM and RAM sizes required by the TinyECC
+components. The execution time was measured directly on the
+sensor nodes. To get the overall performance result, we ran-
+domly generated the parameters other than those deﬁning the
+curves (e.g., random message, random public and private key
+pairs), and obtained the execution time for each data point by
+taking the average of 10 test instances. The energy consump-
+tion was then calculated as U × I × t based on the execution
+time (t), the voltage (U), and current draw (I) on these sensor
+platforms [1, 2, 5, 7].
+6.2. Evaluation Results
+6.2.1. Impact of Individual Optimizations
+Public Key Generation: We ﬁrst present the impact of indi-
+vidual optimizations on the execution time of public key gen-
+eration in ECDSA, ECIES, and ECDH, as shown in Figure 1.
+Since SHAMIR
+TRICK is only for ECDSA signature veri-
+ﬁcation, it has no effect on public key generation. Thus, we
+skip SHAMIR
+TRICK in Figure 1. From Figure 1, we can see
+that PROJECTIVE is the most effective switch in both case
+A and B. In case A, SLIDING WIN is the second most ef-
+fective switch, while in case B, CURVE OPT is the second
+most effective switch. In both cases,HYBRID MULT and HY-
+BRID SQR have similar effects.
+Barratt Reduction: We notice thatBARRETT is not as ef-
+fective as expected. The public key generation is even slower
+in case A when BARRETT is enabled, as Figure 1(a) shows.
+Barrett reduction requires 2 large number multiplications and
+4 large number division (replaced by memory shifting). Since
+memory operation is slow for low-end sensor platforms, the
+Barrett reduction is not necessarily faster than division i n
+TinyECC when HYBRID
+MULT are disabled.
+Division Barrett reduction w/o Barrett reduction w/
+HYBRID MULT HYBRID MULT
+MICAz (8 MHz) 221.07 394.59 169.79
+TelosB (4 MHz) 196.50 367.68 243.04
+Tmote Sky (8 MHz) 98.82 184.5 121.86
+Imote2 (13 MHz) 71.29 161.28 64.80
+Imote2 (104 MHz) 8.97 20.22 8.16
+Imote2 (208 MHz) 4.52 10.14 4.11
+Imote2 (416 MHz) 2.39 5.22 2.18
+Table 2. Execution time (ms) for modular reduction
+through division and Barrett reduction
+To gain more insights into this issue, we perform additional
+tests on the execution time of normalized division and barre tt
+reduction (with and without HYBRID
+MULT) by randomly
+generating a 320-bit large number and computing mod with
+the modular p deﬁned in secp160r1 for 100 rounds. The
+results are given in Table 2. These results indicate that Bar -
+rett reduction is slower than normalized division when HY-
+BRID
+MULT is disabled, but faster when HYBRID MULT is
+enabled for MICAz and Imote2. In other words, the Bar-
+rett reduction optimization should be used along with HY-
+BRID
+MULT to be helpful for these two platforms. Since
+the hardware multiplier of TelosB/Tmote Sky is not part of
+MSP430 CPU, the use of this hardware multiplier involves
+loading and reading peripheral registers. The Barrett redu c-
+tion is slower than normalized division for TelosB/Tmote Sky
+6
+
+
+===== PAGE 7 =====
+31375.08 
+42162.17 
+21079.05 
+2725.47 
+340.65 
+170.33 
+85.26 
+32435.98 
+43151.54 
+21576.48 
+2874.66 
+359.31 
+179.65 
+89.88 
+31070.33 
+42071.30 
+21015.78 
+2707.68 
+338.44 
+169.22 
+84.72 
+30850.99 
+41906.08 
+20991.54 
+2691.55 
+336.39 
+84.14 
+30219.28 
+41333.31 
+20715.97 
+2652.47 
+331.54 
+165.77 
+83.10 
+9222.54 
+8168.74 
+4057.51 
+862.81 
+107.85 
+53.92 
+27.19 
+25296.98 
+34199.60 
+17125.64 
+2239.95 
+279.97 
+139.99 
+70.03 
+168.21 
+1
+10 
+100 
+1000 
+10000 
+100000 
+1000000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Disable All BARRETT HYBRID_MULT HYBRID_SQR CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(a) Public key gen time when all other optimizations are disabled (case A)
+1882.50 
+2962.05 
+1477.57 
+351.74 
+43.62 
+21.81 
+11.25 
+1882.46 
+2961.80 
+1479.16 
+351.75 
+43.57 
+21.78 
+11.25 
+3134.82 
+3509.16 
+1757.60 
+430.66 
+53.83 
+27.13 
+13.82 
+2844.04 
+3586.01 
+1790.68 
+415.91 
+51.99 
+13.32 
+3963.58 
+5849.83 
+2930.29 
+594.52 
+74.31 
+37.19 
+18.70 
+23587.61 
+33108.14 
+16578.42 
+2149.34 
+268.66 
+134.28 
+67.28 
+2388.57 
+3868.71 
+1937.50 
+442.60 
+55.32 
+27.66 
+14.63 
+25.99 
+1
+10 
+100 
+1000 
+10000 
+100000 
+1000000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Enable All BARRETT HYBRID_MULT HYBRID_SQR CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(b) Public key gen time when all other optimizations are enabled (case B)
+Figure 1. Execution time of public key generation
+with hybrid multiplication.
+ECDSA: Now we present the impacts of individual opti-
+mizations on the execution time of ECDSA. There are three
+aspects of the execution time. Figures 2(a) and 2(b) show the
+initialization time required to prepare for ECDSA in cases A
+and B, respectively. Figures 2(c) and 2(d) show the signatur e
+generation time in cases A and B, respectively. Figures 2(e)
+and 2(f) show the signature veriﬁcation time in cases A and B,
+respectively.
+In the initialization of ECDSA, TinyECC needs to precom-
+pute
+µ for Barrett reduction, a few points for the sliding win-
+dow method, and a few points for Shamir’s trick. In case A, as
+Figure 2(a) shows, only these 3 optimization techniques hav e
+impact on the initialization time. For MICAz, the initialization
+of the sliding window method with window size 4 requires
+3,587 ms, which is longer than Shamir’s trick (1,672 ms for
+window size 2) and barrett reduction (6 ms). The same situa-
+tion applies to TelosB, Tmote Sky, and Imote2. If we disable
+all these three techniques, the initialization time of ECDSA is
+close to 0. In case B, as Figure 2(b) shows, the disabling of se-
+lected optimization technique doesn’t reduce the initialization
+time dramatically. Only the disabling of the sliding window
+method can reduce the initialization time to half.
+In Figure 2, we can see that PROJECTIVE is the most ef-
+fective switch to improve the speed of signature generation
+and veriﬁcation. In case A, by enabling the PROJECTIVE
+switch, the signature generation and veriﬁcation of all pla t-
+forms can speed up at least 3 times. In case B, if we disable
+the PROJECTIVE switch, the signature generation and veriﬁ-
+cation has at least 6 times slowdown compared with enabling
+all optimization techniques.
+Although PROJECTIVE is the most efﬁcient switch, it in-
+creases the ROM usage. Figures 3(a) and 3(b) show that the
+when the PROJECTIVE switch is enabled in case A, the ROM
+size is increased by 1,830, 1,822, and 2,236 bytes for MI-
+CAz, TelosB/Tmote Sky, and Imote2, respectively, while the
+RAM size doesn’t change at all. In case B, as Figures 3(c) and
+3(d) show, disabling thePROJECTIVE switch can save 2,396,
+3,880, and 2,652 bytes in ROM for MICAz, TelosB/Tmote
+Sky, and Imote2, respectively. The PROJECTIVE switch is
+the most effective switch to speed up ECDSA operations, but
+it also incurs larger ROM consumption than any other opti-
+mization technique.
+SHAMIR
+TRICK is also an efﬁcient option to speed up
+ECDSA signature veriﬁcation. From Figure 2(e), we can
+see that the veriﬁcation can be speed up by 2 times on all
+platforms when enabling SHAMIR
+TRICK in case A. Both
+the ROM size and RAM size are increased. In case A, the
+RAM size is increased 634, 676, and 784 bytes for MICAz,
+TelosB/Tmote Sky, and Imote2, respectively. Similarly, th e
+ROM size of MICAz, TelosB/Tmote Sky and Imote2 is in-
+creased 638, 632, and 620 bytes, respectively. In case B, dis -
+abling SHAMIR
+TRICK makes veriﬁcation 1.6 times slower
+but save 998, 2,068, and 876 bytes in ROM for MICAz,
+TelosB/Tmote Sky, and Imote2, respectively. The RAM size
+does not decrease much because the sliding window method
+is used for veriﬁcation when SHAMIR
+TRICK is disabled.
+Now let us take a look at the SLIDING WIN option. In
+case A, as Figures 2(c), 2(e), 3(a) and 3(b) show, enabling
+SLIDING
+WIN can improve signature generation and veriﬁ-
+cation 1.2 times faster at the cost of dramatic RAM increase
+(1,262, 1,328 and 1,472 bytes for MICAz, TelosB/Tmote Sky,
+and Imote2, respectively). In case B, as Figures 2(d), 2(f),
+3(c) and 3(d) show, disabling SLIDING
+WIN can save 632,
+668 and 752 bytes of RAM usage for MICAz, TelosB/Tmote
+Sky, and Imote2 with 1.2 times slower signature genera-
+tion and veriﬁcation. Since MICAz and TelosB/Tmote Sky
+are low-end sensor platforms, they have much smaller RAM
+(4kB, 10kB) compared with Imote2 (256kB). Before enable-
+ing SLIDING
+WIN, we should be very careful if the applica-
+tion requires large RAM consumption. Since SLIDING WIN
+is the most RAM consuming switch in TinyECC, application
+developers may disable it or reduce the window size to reserve
+more RAM for the applications.
+7
+
+
+===== PAGE 8 =====
+0.0781 
+0.0977 
+0.0519 
+0.0281 
+0.0041 
+0.0023 
+0.0023 
+6.3978 
+8.1635 
+4.0771 
+0.7864 
+0.0988 
+0.0498 
+0.0271 
+0.0781 
+0.1007 
+0.0488 
+0.0278 
+0.0040 
+0.0023 
+0.0023 
+0.0781 
+0.1007 
+0.0488 
+0.0284 
+0.0040 
+0.0025 
+0.0023 
+0.0781 
+0.0946 
+0.0580 
+0.0277 
+0.0043 
+0.0023 
+0.0023 
+0.0781 
+0.1038 
+0.0427 
+0.0282 
+0.0042 
+0.0023 
+0.0020 
+3586.6933 
+4923.5506 
+2465.4326 
+319.7278 
+39.9632 
+19.9811 
+10.0027 
+1671.8788 
+2290.6737 
+1146.4202 
+148.8784 
+18.6104 
+9.3050 
+4.6558 
+0.0001 
+0.0100 
+1.0000 
+100.0000 
+10000.0000 
+1000000.0000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Disable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) SHAMIR_TRICK(w=2) 
+(a) Init. time when all other optimizations are disabled (ca se A)
+3493.36 
+5102.26 
+2545.18 
+341.25 
+42.68 
+21.34 
+10.74 
+5094.01 
+2544.20 
+340.46 
+42.57 
+21.29 
+10.71 
+3772.85 
+5181.12 
+2594.95 
+360.12 
+45.01 
+22.50 
+11.32 
+3572.08 
+5141.88 
+2566.90 
+346.92 
+43.36 
+21.68 
+10.91 
+3826.72 
+5859.19 
+2934.96 
+378.47 
+47.31 
+23.66 
+11.85 
+3292.86 
+4648.97 
+2327.40 
+300.22 
+37.53 
+18.76 
+9.40 
+1684.46 
+2456.20 
+1230.10 
+164.50 
+20.56 
+10.28 
+5.17 
+3626.14 
+5278.65 
+2641.15 
+353.18 
+44.14 
+22.07 
+11.11 
+3486.92 
+0.0001 
+0.0100 
+1.0000 
+100.0000 
+10000.0000 
+1000000.0000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Enable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) SHAMIR_TRICK(w=2) 
+(b) Init time when all other optimizations are enabled (case B)
+30723.00 
+42582.92 
+21284.39 
+2785.11 
+348.11 
+174.06 
+87.12 
+31760.27 
+43562.39 
+21779.61 
+2936.58 
+367.06 
+183.53 
+91.81 
+30423.74 
+42473.80 
+21220.11 
+2766.76 
+345.82 
+172.91 
+86.56 
+30207.65 
+42316.81 
+21196.15 
+2750.48 
+343.79 
+86.04 
+29591.55 
+41744.58 
+20918.37 
+2710.26 
+338.76 
+169.38 
+84.81 
+9086.12 
+8409.94 
+4177.88 
+891.13 
+111.39 
+55.70 
+28.31 
+25273.89 
+34614.28 
+17333.41 
+2270.90 
+283.84 
+141.92 
+71.07 
+30725.57 
+42610.58 
+21323.55 
+2785.10 
+348.11 
+174.06 
+87.12 
+171.89 
+1
+10 
+100 
+1000 
+10000 
+100000 
+1000000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Disable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) SHAMIR_TRICK(w=2) 
+(c) Sig. generation time when all other optimizations are di sabled (case A)
+2001.62 
+3168.69 
+1580.63 
+363.98 
+45.63 
+22.82 
+11.80 
+2007.97 
+3175.17 
+1585.60 
+364.97 
+45.86 
+22.93 
+11.95 
+3249.44 
+3725.02 
+1865.71 
+447.39 
+55.92 
+27.93 
+14.34 
+2957.78 
+3795.91 
+1894.93 
+431.97 
+53.99 
+13.91 
+4066.37 
+6080.44 
+3045.78 
+611.52 
+76.44 
+38.21 
+19.25 
+23565.96 
+33512.38 
+16777.23 
+2179.79 
+272.45 
+136.20 
+68.28 
+2456.95 
+4076.95 
+2041.65 
+459.20 
+57.40 
+28.70 
+14.78 
+2001.62 
+3164.07 
+1583.22 
+365.73 
+45.72 
+22.86 
+11.82 
+27.00 
+1
+10 
+100 
+1000 
+10000 
+100000 
+1000000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Enable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) SHAMIR_TRICK(w=2) 
+(d) Sig. generation time when all other optimizations are en abled (case B)
+61800.34 
+85727.86 
+42886.27 
+5560.35 
+694.99 
+347.49 
+174.00 
+63892.90 
+87721.60 
+43841.09 
+5863.27 
+732.85 
+366.43 
+183.31 
+61197.70 
+85534.61 
+42724.94 
+5523.87 
+690.44 
+345.22 
+172.87 
+60761.77 
+85205.16 
+42675.35 
+5491.07 
+686.41 
+171.75 
+59517.10 
+84052.23 
+42115.65 
+5411.92 
+676.45 
+338.22 
+169.55 
+18294.94 
+16956.89 
+8425.67 
+1783.73 
+222.95 
+111.46 
+56.19 
+50807.12 
+69391.15 
+34745.25 
+4514.04 
+564.21 
+282.10 
+141.20 
+30484.70 
+41552.96 
+20793.69 
+2710.03 
+338.73 
+169.37 
+84.77 
+343.17 
+1
+10 
+100 
+1000 
+10000 
+100000 
+1000000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Disable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) SHAMIR_TRICK(w=2) 
+(e) Sig. veriﬁcation time when all other optimizations are d isabled (case A)
+2436.46 
+4039.84 
+2016.02 
+446.85 
+56.02 
+28.01 
+14.49 
+2442.09 
+4045.41 
+2020.10 
+446.29 
+55.96 
+27.98 
+14.49 
+4108.00 
+4815.45 
+2411.19 
+557.07 
+69.63 
+34.78 
+17.84 
+3556.52 
+4703.31 
+2347.82 
+525.87 
+65.73 
+16.93 
+5048.30 
+7595.55 
+3804.69 
+754.55 
+94.31 
+47.15 
+23.75 
+28509.93 
+40262.90 
+20157.31 
+2606.36 
+325.77 
+162.91 
+81.65 
+28509.93 
+40262.90 
+20157.31 
+2606.36 
+325.77 
+162.91 
+81.65 
+4020.43 
+6345.58 
+3175.11 
+725.52 
+90.68 
+45.34 
+23.38 
+32.87 
+1
+10 
+100 
+1000 
+10000 
+100000 
+1000000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Enable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) SHAMIR_TRICK(w=2) 
+(f) Sig. veriﬁcation time when all other optimizations are e nabled (case B)
+Figure 2. ECDSA timing result
+Now consider the HYBRID MULT, HYBRID SQR, and
+CURVE OPT options. In case A, HYBRID MULT, HY-
+BRID SQR and CURVE OPT do not have big impact on the
+timing result. However, in case B, HYBRID MULT can speed
+up signature generation by 1.6 times for MICAz, 1.2 times for
+TelosB/Tmote Sky, and 1.2 times faster for Imote2. Similarly,
+it can speed up signature veriﬁcation by 1.7 times for MICAz,
+1.2 times for TelosB/Tmote Sky, and 1.2 times for Imote2.
+HYBRID
+SQR can speed up signature generation by 1.5 times
+for MICAz, 1.2 times for TelosB/Tmote Sky, and 1.2 times
+for Imote2, and speed up signature veriﬁcation by 1.5 times
+for MICAz, 1.2 times for TelosB/Tmote Sky, and 1.2 times
+faster for Imote2. CURVE
+OPT can speed up signature gen-
+eration by 2 times for MICAz, 1.9 times for TelosB/Tmote
+Sky, and 1.7 times for Imote2. Similarly, it can speed up
+signature veriﬁcation by 2.1 times for MICAz, 1.9 times for
+TelosB/Tmote Sky, and 1.7 times for Imote2. The reason
+that HYBRID
+MULT, HYBRID SQR and CURVE OPT can-
+not speed up ECDSA a lot in case A is that the PROJEC-
+TIVE option is disabled when each of these switches is en-
+abled. Thus, inverse operation is the major computation of
+signature generation and veriﬁcation. In case B, when PRO-
+JECTIVE is enabled, multiplication and squaring become the
+major computation in ECDSA.
+8
+
+
+===== PAGE 9 =====
+10,180 
+8,172 
+8,644 
+11,468 
+9,358 
+10,048 
+11,278 
+8,208 
+8,696 
+11,500 
+8,310 
+8,824 
+10,690 
+8,660 
+9,232 
+12,010 
+9,994 
+10,880 
+10,374 
+8,364 
+8,896 
+10,818 
+8,804 
+9,264 
+0
+5,000 
+10,000 
+15,000 
+20,000 
+25,000 
+MICAz TelosB / Tmote Sky Imote2 
+ROM size (Byte) 
+Disable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) SHAMIR_TRICK(w=2) 
+(a) ROM size w/ all other optimizations disabled (case A)
+152 
+160 
+176 
+244 
+258 
+292 
+152 
+160 
+176 
+152 
+160 
+176 
+152 
+160 
+176 
+152 
+160 
+176 
+1,414 
+1,488 
+1,648 
+786 
+836 
+960 
+0
+500 
+1,000 
+1,500 
+2,000 
+2,500 
+MICAz TelosB / Tmote Sky Imote2 
+RAM size (Byte) 
+Disable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) SHAMIR_TRICK(w=2) 
+(b) RAM size w/ all other optimizations disabled (case A)
+17,888 
+14,708 
+14,344 
+16,546 
+13,520 
+12,932 
+16,946 
+14,672 
+14,292 
+16,660 
+14,570 
+14,164 
+16,830 
+13,904 
+13,468 
+15,492 
+10,828 
+11,692 
+17,748 
+13,546 
+14,140 
+16,890 
+12,640 
+13,468 
+0
+5,000 
+10,000 
+15,000 
+20,000 
+25,000 
+MICAz TelosB / Tmote Sky Imote2 
+ROM size (Byte) 
+Enable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) SHAMIR_TRICK(w=2) 
+(c) ROM size w/ all other optimizations enabled (case B)
+1,510 
+1,602 
+1,828 
+1,418 
+1,504 
+1,712 
+1,510 
+1,602 
+1,828 
+1,510 
+1,602 
+1,828 
+1,510 
+1,602 
+1,828 
+1,510 
+1,602 
+1,828 
+878 
+934 
+1,076 
+1,506 
+1,586 
+1,764 
+0
+500 
+1,000 
+1,500 
+2,000 
+2,500 
+MICAz TelosB / Tmote Sky Imote2 
+RAM size (Byte) 
+Disable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) SHAMIR_TRICK(w=2) 
+(d) RAM size w/ all other optimizations enabled (case B)
+Figure 3. Code size of ECDSA
+Based on the timing results obtained for ECDSA, the ef-
+fectiveness of these optimization switches in terms of ex-
+ecution time can be ordered as follows: PROJECTIVE >
+CURVE
+OPT > HYBRID MULT > HYBRID SQR > SLID-
+ING WIN > SHAMIR TRICK > BARRETT. In terms of
+RAM size, the optimization switches can be ordered as fol-
+lows: SLIDING
+WIN > SHAMIR TRICK > BARRETT > HY-
+BRID MULT = HYBRID SQR = CURVE OPT = PROJEC-
+TIVE.
+In terms of ROM size, the optimization switches are or-
+dered differently for different platforms. For MICAz, PRO-
+JECTIVE > BARRETT ≈ HYBRID SQR > CURVE OPT
+≈ SHAMIR TRICK ≈ HYBRID MULT > SLIDING WIN.
+For TelosB/Tmote Sky, PROJECTIVE > BARRETT ≈
+SHAMIR TRICK > CURVE OPT ≈ SLIDING WIN > HY-
+BRID SQR > HYBRID MULT. For Imote2, PROJECTIVE
+> BARRETT > SHAMIR TRICK ≥ CURVE OPT > SLID-
+ING WIN > HYBRID SQR > HYBRID MULT.
+ECIES: Let us switch our attention to the performance re-
+sults of ECIES. Figures 4 and 5 show the execution time and
+the storage requirements of ECIES, respectively. Since ECIES
+and ECDSA share the same implementation for basic elliptic
+curve operations, the effects of optimization switches aresim-
+ilar. Note that SHAMIR
+TRICK is not applicable here.
+In ECIES, only Barrett reduction and the sliding window
+method require precomputation. As Figure 4(a) shows, the
+precomputation of the sliding window method with window
+size 4 costs 1,795, 2,464, 1,236, and 160 ms for MICAz,
+TelosB, Tmote Sky, and Imote2 (13 MHz), respectively. In
+contrast, the precomputation for Barrett reduction only re -
+quires 1.3, 1.7, 0.9 and 0.3 ms for MICAz, TelosB, Tmote
+Sky, and Imote2 (13 MHz), respectively. This is because the
+sliding window method with window size 4 needs to precom-
+pute 16 points on the elliptic curve, but Barrett reduction only
+precomputes one large number
+µ.
+The PROJECTIVE option is the most effective switch to
+speed up ECIES. As Figures 4(c) and 4(e) show, in case A,
+the PROJECTIVE option can speed up encryption 3.4, 5.2 and
+3.2 times, and decryption 3.2, 4.8 and 3.0 times for MICAz,
+TelosB/Tmote Sky, and Imote2, respectively. Figures 4(d) and
+4(f) show that, in case B, PROJECTIVE can speed up encryp-
+tion 12.5, 10.6 and 6.0 times, can speed up decryption 9.8,
+8.6 and 5.1 times for MICAz, TelosB/Tmote Sky, and Imote2,
+respectively.
+The PROJECTIVE option is also the most ROM consum-
+ing switch in ECIES. In case A, as Figure 5(a) shows, the
+PROJECTIVE option increases ROM usage 1,032, 1,688 and
+1,620 bytes for MICAz, TelosB/Tmote Sky, and Imote2, re-
+spectively. In case B, as Figure 5(c) shows, thePROJECTIVE
+option increases ROM usage 4,198, 4,310 and 4,988 bytes for
+MICAz, TelosB/Tmote Sky, and Imote2, respectively. In case
+A, as Figure 5(b) shows, thePROJECTIVE option does not re-
+quire additional RAM usage. In case B, as Figure 5(d) shows,
+the PROJECTIVE option increase RAM usage 315, 330 and
+360 bytes for MICAz, TelosB/Tmote Sky, and Imote2, respec-
+tively. Because sliding window method in projective coordi -
+nate system requires additional RAM for z axis.
+The SLIDING
+WIN option can speed up ECIES encryption
+by 1.2 times and speed up decryption by 1.1 times for all plat-
+forms in both cases. SLIDING
+WIN is also the most RAM
+consuming switch as ﬁgures 5(b) and 5(d) show. For case
+A, SLIDING
+WIN with window size 4 increases RAM usage
+1,262, 1,328, 1,472 bytes for MICAz, TelosB/Tmote Sky, and
+9
+
+
+===== PAGE 10 =====
+0.0760 
+0.0977 
+0.0549 
+0.0384 
+0.0053 
+0.0031 
+0.0028 
+1.3194 
+1.7059 
+0.8545 
+0.2911 
+0.0370 
+0.0190 
+0.0126 
+0.0758 
+0.1007 
+0.0458 
+0.0379 
+0.0052 
+0.0031 
+0.0028 
+0.0757 
+0.1038 
+0.0458 
+0.0380 
+0.0052 
+0.0030 
+0.0028 
+0.0757 
+0.1007 
+0.0427 
+0.0376 
+0.0052 
+0.0030 
+0.0028 
+0.0760 
+0.0977 
+0.0488 
+0.0390 
+0.0054 
+0.0031 
+0.0028 
+1794.5505 
+2464.1755 
+1236.4197 
+159.7098 
+19.9617 
+9.9813 
+5.0012 
+0.0001 
+0.0100 
+1.0000 
+100.0000 
+10000.0000 
+1000000.0000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Disable All BARRETT HYBRID_MULT HYBRID_SQR CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(a) Init. time when all other optimizations are disabled (ca se A)
+1838.74 
+2635.96 
+1319.32 
+178.34 
+22.29 
+11.15 
+5.64 
+1837.49 
+2639.95 
+1318.17 
+178.15 
+22.27 
+11.12 
+5.62 
+1973.69 
+2688.13 
+1343.11 
+188.82 
+23.60 
+11.80 
+5.96 
+1874.59 
+2654.87 
+1328.70 
+181.05 
+22.64 
+11.32 
+5.73 
+2117.12 
+3038.42 
+1519.01 
+213.79 
+26.72 
+13.36 
+6.71 
+1704.30 
+2409.37 
+1205.53 
+153.96 
+19.24 
+9.62 
+4.82 
+1.38 
+1.71 
+0.85 
+0.30 
+0.04 
+0.02 
+0.01 
+0.0001 
+0.0100 
+1.0000 
+100.0000 
+10000.0000 
+1000000.0000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Enable All BARRETT HYBRID_MULT HYBRID_SQR CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(b) Init. time when all other optimizations are enabled (cas e B)
+61401.83 
+84928.47 
+42558.09 
+5514.29 
+689.23 
+344.63 
+172.42 
+63476.87 
+86966.11 
+43588.30 
+5825.18 
+728.10 
+364.04 
+182.12 
+60804.31 
+84822.80 
+42348.61 
+5475.03 
+684.34 
+342.17 
+171.22 
+60365.61 
+84472.44 
+42210.72 
+5444.74 
+680.58 
+340.29 
+170.24 
+59126.29 
+83231.34 
+41766.16 
+5366.96 
+670.83 
+335.41 
+168.11 
+17903.17 
+16441.91 
+8176.37 
+1736.00 
+216.94 
+108.49 
+55.13 
+52142.00 
+71502.40 
+35766.03 
+4676.68 
+584.55 
+292.27 
+146.23 
+1
+10 
+100 
+1000 
+10000 
+100000 
+1000000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Disable All BARRETT HYBRID_MULT HYBRID_SQR CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(c) Encryption time when all other optimizations are disabl ed (case A)
+3907.46 
+6536.01 
+3271.01 
+736.97 
+92.06 
+46.06 
+24.26 
+3907.47 
+6549.62 
+3270.36 
+736.75 
+92.09 
+46.06 
+24.27 
+6601.52 
+7830.27 
+3911.90 
+916.95 
+114.61 
+57.24 
+29.57 
+6121.28 
+7849.97 
+3928.46 
+889.98 
+111.33 
+55.67 
+29.03 
+8520.78 
+12938.66 
+6467.25 
+1283.48 
+160.43 
+80.22 
+40.43 
+48648.98 
+69308.43 
+34662.82 
+4447.79 
+555.94 
+277.97 
+139.23 
+4642.65 
+7839.26 
+3918.13 
+875.26 
+109.40 
+54.70 
+28.18 
+1
+10 
+100 
+1000 
+10000 
+100000 
+1000000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Enable All BARRETT HYBRID_MULT HYBRID_SQR CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(d) Encryption time when all other optimizations are enable d (case B)
+31872.28 
+42735.57 
+21415.06 
+2811.87 
+351.45 
+175.73 
+88.02 
+33281.47 
+44088.52 
+22099.13 
+3016.44 
+377.03 
+188.51 
+94.35 
+31285.07 
+42573.04 
+21252.24 
+2773.86 
+346.71 
+173.36 
+86.84 
+31349.79 
+42507.15 
+21232.64 
+2777.06 
+347.13 
+173.57 
+86.91 
+30717.86 
+41883.92 
+21018.51 
+2738.70 
+342.32 
+171.16 
+85.77 
+9984.74 
+8923.66 
+4440.26 
+944.52 
+118.07 
+59.03 
+29.78 
+28052.06 
+37668.57 
+18840.18 
+2485.51 
+310.67 
+155.34 
+77.85 
+1
+10 
+100 
+1000 
+10000 
+100000 
+1000000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Disable All BARRETT HYBRID_MULT HYBRID_SQR CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(e) Decryption time when all other optimizations are disabl ed (case A)
+2632.66 
+4251.98 
+2127.77 
+466.10 
+58.15 
+29.13 
+15.10 
+2773.06 
+4198.64 
+2096.42 
+461.14 
+57.64 
+28.87 
+14.99 
+4943.14 
+5362.04 
+2678.54 
+629.79 
+78.72 
+39.31 
+20.09 
+3799.89 
+4938.82 
+2471.51 
+545.99 
+68.28 
+34.14 
+17.62 
+5169.10 
+7714.46 
+3855.87 
+762.19 
+95.27 
+47.63 
+24.01 
+25807.61 
+36480.49 
+18249.00 
+2353.20 
+294.13 
+147.06 
+73.67 
+2847.93 
+4615.15 
+2306.71 
+502.49 
+62.81 
+31.40 
+16.39 
+1
+10 
+100 
+1000 
+10000 
+100000 
+1000000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Enable All BARRETT HYBRID_MULT HYBRID_SQR CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(f) Decryption time when all other optimizations are enable d (case B)
+Figure 4. ECIES timing result
+Imote2, respectively. For case B, SLIDING WIN with win-
+dow size 4 requires 1,577, 1,658, 1,832 bytes for MICAz,
+TelosB/Tmote Sky, and Imote2, respectively.
+Figures 4(c) and 4(e) show that in case A, none of the re-
+maining optimization techniques help much except PROJEC-
+TIVE option. But in case B, there are big differences, as re-
+ﬂected in Figures 4(d) and 4(f). In case B, when thePROJEC-
+TIVE option is enabled, the number of inverse operations is
+decreased a lot with increasing number of multiplications and
+squarings. Thus, the other optimization techniques can spe ed
+up ECIES in case B better than in case A. In case B, the HY-
+BRID
+MULT option can speed up encryption by 1.7 times for
+MICAz, 1.2 times for TelosB/Tmote Sky, and 1.4 times for
+Imote2. It can speed up decryption by 1.9 times for MICAz,
+1.3 times for TelosB/Tmote Sky, and 1.6 times for Imote2.
+Similarly, the HYBRID
+SQR option can speed up encryption
+by 1.5 times for MICAz, 1.2 times for TelosB/Tmote Sky, and
+1.3 times for Imote2. It can speed up decryption by 1.4 times
+for MICAz, 1.2 times for TelosB/Tmote Sky, and 1.2 times for
+Imote2. The CURVE
+OPT option can speed up encryption by
+2.1 times for MICAz, 2.0 times for TelosB/Tmote Sky, and
+1.7 times for Imote2. Similarly, it can speed up decryption by
+2.0 times for MICAz, 1.8 times for TelosB/Tmote Sky, and
+1.6 times for Imote2.
+10
+
+
+===== PAGE 11 =====
+12,442 
+10,434 
+10,904 
+13,836 
+11,872 
+12,600 
+13,540 
+10,470 
+10,956 
+13,762 
+10,572 
+11,084 
+13,156 
+10,936 
+11,572 
+13,474 
+12,122 
+12,524 
+10,664 
+11,184 
+12,690 
+0
+5,000 
+10,000 
+15,000 
+20,000 
+25,000 
+MICAz TelosB / Tmote Sky Imote2 
+ROM size (Byte) 
+Disable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(a) ROM size w/ all other optimizations disabled (case A)
+150 
+158 
+172 
+197 
+208 
+232 
+150 
+158 
+172 
+150 
+158 
+172 
+150 
+158 
+172 
+150 
+158 
+172 
+1,486 
+1,644 
+1,412 
+0
+500 
+1,000 
+1,500 
+2,000 
+2,500 
+MICAz TelosB / Tmote Sky Imote2 
+RAM size (Byte) 
+Disable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(b) RAM size w/ all other optimizations disabled (case A)
+20,768 
+16,218 
+17,728 
+20,162 
+15,658 
+17,072 
+19,474 
+16,182 
+17,676 
+19,540 
+16,080 
+17,548 
+20,436 
+16,298 
+17,840 
+16,570 
+11,908 
+12,740 
+12,930 
+14,132 
+17,442 
+0
+5,000 
+10,000 
+15,000 
+20,000 
+25,000 
+MICAz TelosB / Tmote Sky Imote2 
+ROM size (Byte) 
+Enable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(c) ROM size w/ all other optimizations enabled (case B)
+1774 
+1866 
+2064 
+1,727 
+1,816 
+2,004 
+1,774 
+1,866 
+2,064 
+1,774 
+1,866 
+2,064 
+1,774 
+1,866 
+2,064 
+1,459 
+1,536 
+1,704 
+208 
+232 
+197 
+0
+500 
+1,000 
+1,500 
+2,000 
+2,500 
+MICAz TelosB / Tmote Sky Imote2 
+RAM size (Byte) 
+Enable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(d) RAM size w/ all other optimizations enabled (case B)
+Figure 5. ECIES code size
+Based on the above performance results, we can give an
+order of priority of the optimization switches when execution
+time is the primary objective as follows: PROJECTIVE >
+CURVE OPT > HYBRID MULT > HYBRID SQR > SLID-
+ING WIN > BARRETT. In addition, the order of priority for
+the purpose of RAM size reduction is given as follows:SLID-
+ING WIN > PROJECTIVE > BARRETT > HYBRID MULT
+= HYBRID SQR = CURVE OPT.
+For ROM size, the optimization switches have differ-
+ent orders for different cases. For case A, TelosB/Tmote
+Sky and Imote2 have similar order: PROJECTIVE ≈ BAR-
+RETT > CURVE
+OPT > SLIDING WIN > HYBRID SQR
+> HYBRID MULT. MICAz has the order: BARRETT
+> HYBRID SQR > HYBRID MULT > PROJECTIVE >
+CURVE OPT > SLIDING WIN. For case B, TelosB/Tmote
+Sky have same order: PROJECTIVE > SLIDING WIN
+> BARRETT > HYBRID SQR > HYBRID MULT >
+CURVE OPT. MICAz has order: PROJECTIVE > SLID-
+ING WIN > HYBRID MULT > HYBRID SQR > BARRETT
+> CURVE OPT.
+ECDH: Figures 6 and 7 show the timing result and the stor-
+age requirements of ECDH, respectively. Similar to ECIES,
+the SHAMIR
+TRICK option is not applicable to ECDH, either.
+The PROJECTIVE option is the most efﬁcient one for
+ECDH, though it is also the most ROM consuming among
+all the optimization switches. In case A, it can speed up
+ECDH key establishment 3.4, 5.2, and 3.2 times with addi-
+tional 984, 1,144 ,and 1,552 bytes ROM requirement for MI-
+CAz, TelosB/Tmote Sky, and Imote2, respectively. In case B,
+it can speed up key establishment 12.0, 10.2, and 5.8 times
+with 3,920, 4,220, and 4,864 bytes more ROM usage for MI-
+CAz, TelosB/Tmote Sky and Imote2, respectively.
+The HYBRID
+MULT, HYBRID SQR and CURVE OPT op-
+tions do not work well in case A due to the disabling of the
+PROJECTIVE option. In case B, the HYBRID
+MULT option
+can speed up key agreement 1.7, 1.2, and 1.3 times with 1,345,
+36, and 52 more bytes ROM usage for MICAz, TelosB/Tmote
+Sky, and Imote2, respectively. The HYBRID
+SQR option
+can speed up key agreement 1.7, 1.2, and 1.2 times with
+1,228, 138, and 180 more bytes ROM usage for MICAz,
+TelosB/Tmote Sky, and Imote2, respectively. Finally, the
+CURVE
+OPT option can speed up key agreement 2.2, 2.0, and
+1.8 times with 86 more, but 204 and 264 fewer bytes ROM us-
+age for MICAz, TelosB/Tmote Sky, and Imote2, respectively.
+This is reasonable because nesC compiler may do different
+optimizations for different platforms. We also use more in-
+line assembly code in speciﬁc curve optimization to reduce
+the memory operation, but do not have such inline assembly
+code speciﬁcally for CURVE
+OPT on TelosB/Tmote Sky and
+Imote2.
+The SLIDING WIN option can speed up key establish-
+ment by 1.1 times faster in both cases. SLIDING WIN is the
+most RAM consuming switch as ﬁgures 7(b) and 7(d) show.
+For case A, SLIDING
+WIN increases the RAM usage 1,262,
+1,328, and 1,472 bytes for MICAz, TelosB/Tmote Sky, and
+Imote2, respectively. For case B, SLIDING
+WIN increases
+the RAM usage 1,577, 1,658, and 1,832 bytes for MICAz,
+TelosB/Tmote Sky, and Imote2, respectively.
+According to the effectiveness of speeding up ECDH, we
+should enable each optimization switches in the following or-
+der: PROJECTIVE > CURVE
+OPT > HYBRID MULT >
+HYBRID SQR > SLIDING WIN > BARRETT.
+For required RAM size, the optimization switches has the
+following order for all platforms: SLIDING WIN > PROJEC-
+11
+
+
+===== PAGE 12 =====
+0.0770 
+0.0946 
+0.0427 
+0.0404 
+0.0056 
+0.0031 
+0.0029 
+1.7029 
+0.8545 
+0.2968 
+0.0368 
+0.0189 
+0.0124 
+0.0769 
+0.1007 
+0.0458 
+0.0394 
+0.0056 
+0.0031 
+0.0029 
+0.0770 
+0.0916 
+0.0458 
+0.0397 
+0.0056 
+0.0031 
+0.0031 
+0.0770 
+0.0946 
+0.0488 
+0.0394 
+0.0055 
+0.0031 
+0.0030 
+0.0770 
+0.0977 
+0.0427 
+0.0386 
+0.0053 
+0.0029 
+0.0028 
+1794.5747 
+2466.3482 
+1234.5765 
+159.7268 
+19.9641 
+9.9828 
+5.0040 
+1.3108 
+0.0001 
+0.0100 
+1.0000 
+100.0000 
+10000.0000 
+1000000.0000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Disable All BARRETT HYBRID_MULT HYBRID_SQR CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(a) Init. time w/ all other optimizations disabled (case A)
+1838.74 
+2637.52 
+1319.54 
+179.16 
+22.39 
+11.20 
+5.65 
+2635.65 
+1318.90 
+179.25 
+22.40 
+11.20 
+5.67 
+1973.55 
+2686.67 
+1343.45 
+190.60 
+23.83 
+11.91 
+6.01 
+1874.63 
+2653.95 
+1328.88 
+181.91 
+22.73 
+11.37 
+5.74 
+2117.08 
+3038.15 
+1519.80 
+215.52 
+26.95 
+13.47 
+6.76 
+1704.30 
+2407.65 
+1205.86 
+153.95 
+19.24 
+9.62 
+4.82 
+1.37 
+1.71 
+0.85 
+0.29 
+0.04 
+0.02 
+0.01 
+1837.49 
+0.0001 
+0.0100 
+1.0000 
+100.0000 
+10000.0000 
+1000000.0000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Enable All BARRETT HYBRID_MULT HYBRID_SQR CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(b) Init. time w/ all other optimizations enabled (case B)
+31208.21 
+42197.99 
+21151.53 
+2718.31 
+339.77 
+169.89 
+85.05 
+43227.99 
+21657.04 
+2872.32 
+359.01 
+179.50 
+89.84 
+30906.57 
+42143.97 
+21080.07 
+2698.77 
+337.32 
+168.66 
+84.45 
+30685.57 
+42012.33 
+21005.75 
+2683.72 
+335.44 
+167.71 
+83.94 
+30056.81 
+41459.89 
+20742.54 
+2645.13 
+330.62 
+165.31 
+82.85 
+9117.52 
+8116.97 
+4099.34 
+855.05 
+106.87 
+53.44 
+27.16 
+27241.65 
+36953.74 
+18504.93 
+2393.89 
+299.22 
+149.61 
+74.92 
+32258.25 
+1
+10 
+100 
+1000 
+10000 
+100000 
+1000000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Disable All BARRETT HYBRID_MULT HYBRID_SQR CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(c) Key establishment time w/ all other optimizations disabled (case A)
+2117.43 
+3510.10 
+1755.96 
+392.12 
+49.01 
+24.51 
+12.89 
+3509.83 
+1756.11 
+391.84 
+48.98 
+24.49 
+12.88 
+3663.32 
+4229.52 
+2114.97 
+491.51 
+61.44 
+30.72 
+15.99 
+3652.82 
+4193.85 
+2099.81 
+471.56 
+58.94 
+29.47 
+15.37 
+4668.35 
+6979.42 
+3491.22 
+685.08 
+85.71 
+42.81 
+21.57 
+25435.36 
+35787.20 
+17919.63 
+2276.24 
+284.51 
+142.26 
+71.34 
+2341.20 
+3878.05 
+1942.92 
+428.21 
+53.52 
+26.89 
+13.85 
+2117.45 
+1
+10 
+100 
+1000 
+10000 
+100000 
+1000000 
+MICAz 
+(8 MHz) 
+TelosB 
+(4 MHz) 
+Tmote Sky 
+(8 MHz) 
+Imote2 
+(13 MHz) 
+Imote2 
+(104 MHz) 
+Imote2 
+(208 MHz) 
+Imote2 
+(416 MHz) 
+Time (ms) 
+Enable All BARRETT HYBRID_MULT HYBRID_SQR CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(d) Key establishment time w/ all other optimizations enabled (case B)
+Figure 6. ECDH timing result
+TIVE > BARRETT > HYBRID MULT = HYBRID SQR =
+CURVE OPT.
+For required ROM size, the optimization switches has
+different order for different platforms in different cases .
+TelosB/Tmote Sky and Imote2 have same orders in both
+cases. In case A, they have order: PROJECTIVE > BAR-
+RETT > SLIDING
+WIN > HYBRID SQR > HYBRID MULT
+> CURVE OPT. In case B, they have order: PROJEC-
+TIVE > SLIDING WIN > BARRETT > HYBRID SQR
+> HYBRID MULT > CURVE OPT. MICAz has differ-
+ent orders. In case A, it has order: HYBRID SQR >
+HYBRID MULT > BARRETT > PROJECTIVE > SLID-
+ING WIN > CURVE OPT. In case B, it has order: PROJEC-
+TIVE > SLIDING WIN > HYBRID MULT > HYBRID SQR
+> BARRETT > CURVE OPT.
+6.2.2. Most Computationally Efﬁcient Conﬁguration
+Now let us take a closer look at the most computation-
+ally efﬁcient conﬁguration. Apparently, TinyECC provides
+the most computationally efﬁcient conﬁguration when all th e
+optimization switches are enabled. Figure 8 shows the execu-
+tion time required by ECDSA initialization, signature gene r-
+ation, signature veriﬁcation; ECIES initialization, encryption,
+decryption; ECDH initialization, key establishment.
+From ﬁgure 8, we can see that enabling all optimization
+switches requires long pre-computation. For example, it takes
+MICAz 3,493, 1,839 and 1,839 ms to do pre-computation
+for ECDSA, ECIES and ECDH, respectively. Most of the
+pre-computation time is for the sliding window method and
+Shamir’s trick (ECDSA only). It even takes longer time for
+TelosB to do pre-computation because TelosB can only run at
+4 MHz. TelosB is slower than MICAz and Imote2 in ECDSA,
+ECIES, and ECDH operations. Tmote Sky, which runs at 8
+MHz, is two times faster than TelosB. Running at 13 MHz,
+the default CPU frequency for Imote2, Imote2 is faster than
+MICAz in all operations. If we set the frequency to 416 MHz,
+it only takes 12 and 14 ms to generate ECDSA signature and
+verify it. Moreover, it can perform ECIES encryption in 24
+ms and decrypt in 15 ms. Finally, ECDH key establishment
+only takes 13 ms.
+Enabling all optimization switches requires the largest
+ROM and RAM consumptions. Figure 9 shows the ROM and
+RAM requirements by all schemes. Imote2 has the largest
+RAM size due to its word size. MICAz has the smallest RAM
+size due to its 8-bit word size, but it has the largest ROM size
+because it has additional assembly code for minimizing mem-
+ory operation when CURVE
+OPT option is enabled.
+Now consider the energy consumption of ECDSA, ECIES
+12
+
+
+===== PAGE 13 =====
+8,634 
+6,950 
+6,876 
+9,636 
+8,008 
+8,068 
+9,732 
+6,986 
+6,928 
+9,954 
+7,088 
+7,056 
+8,592 
+6,802 
+6,640 
+9,618 
+8,094 
+8,428 
+8,850 
+7,142 
+7,124 
+0
+5,000 
+10,000 
+15,000 
+20,000 
+25,000 
+MICAz TelosB / Tmote Sky Imote2 
+ROM size (Byte) 
+Disable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(a) ROM size w/ all other optimizations disabled (case A)
+150 
+158 
+172 
+197 
+208 
+232 
+150 
+158 
+172 
+150 
+158 
+172 
+150 
+158 
+172 
+150 
+158 
+172 
+1,412 
+1,486 
+1,644 
+0
+500 
+1,000 
+1,500 
+2,000 
+2,500 
+MICAz TelosB / Tmote Sky Imote2 
+RAM size (Byte) 
+Disable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(b) RAM size w/ all other optimizations disabled (case A)
+16,018 
+12,102 
+12,852 
+15,324 
+11,396 
+11,980 
+14,673 
+12,066 
+12,800 
+14,790 
+11,964 
+12,672 
+15,932 
+12,306 
+13,116 
+12,098 
+7,882 
+7,988 
+12,954 
+8,894 
+9,344 
+0
+5,000 
+10,000 
+15,000 
+20,000 
+25,000 
+MICAz TelosB / Tmote Sky Imote2 
+ROM size (Byte) 
+Enable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(c) ROM size w/ all other optimizations enabled (case B)
+1,774 
+1,866 
+2,064 
+1,727 
+1,816 
+2,004 
+1,774 
+1,866 
+2,064 
+1,774 
+1,866 
+2,064 
+1,774 
+1,866 
+2,064 
+1,459 
+1,536 
+1,704 
+197 
+208 
+232 
+0
+500 
+1,000 
+1,500 
+2,000 
+2,500 
+MICAz TelosB / Tmote Sky Imote2 
+RAM size (Byte) 
+Enable All BARRETT HYBRID_MULT HYBRID_SQR 
+CURVE_OPT PROJECTIVE SLIDING_WIN(w=4) 
+(d) RAM size w/ all other optimizations enabled (case B)
+Figure 7. ECDH code size
+and ECDH on the testing platforms. We compute energy con-
+sumption using W = U × I × t, where U is the voltage, I is the
+current draw in active mode with radio off, andt is the execu-
+tion time. We took the voltage and current draw (with radio
+off) from the data sheet of each sensor platform [1,2,5,7], and
+used the execution time obtained in our experiments. Specif -
+ically, we chose U as 3v for MICAz, TelosB and Tmote Sky.
+The current draw for MICAz and TelosB/Tmote Sky was 8
+mA and 1.8 mA, respectively. For Imote2, U is 0.95v for 13
+MHz and 104 MHz [1]. The Imote2 data sheet [1] does not
+give the current draw when the node runs at 104 MHz with
+3493.36 
+2001.62 
+2436.46 
+1838.74 
+3907.46 
+2632.66 
+1838.74 
+2117.43 
+5102.26 
+3168.69 
+4039.84 
+2635.96 
+6536.01 
+4251.98 
+2637.52 
+3510.10 
+2545.18 
+1580.63 
+2016.02 
+1319.32 
+3271.01 
+2127.77 
+1319.54 
+1755.96 
+341.25 
+363.98 
+446.85 
+178.34 
+736.97 
+466.10 
+179.16 
+392.12 
+42.68 
+45.63 
+56.02 
+22.29 
+92.06 
+58.15 
+22.39 
+49.01 
+21.34 
+22.82 
+28.01 
+11.15 
+46.06 
+29.13 
+11.20 
+24.51 
+10.74 
+11.80 
+14.49 
+5.64 
+24.26 
+15.10 
+5.65 
+12.89 
+1
+10 
+100 
+1000 
+10000 
+100000 
+init 
+(ECDSA) 
+sign 
+(ECDSA) 
+verify 
+(ECDSA) 
+init 
+(ECIES) 
+encrypt 
+(ECIES) 
+decrypt 
+(ECIES) 
+init 
+(ECDH) 
+key establish 
+(ECDH) 
+Time (ms) 
+MICAz (8 MHz) TelosB (4 MHz) Tmote Sky (8 MHz) Imote2 (13 MHz) Imote2 (104 MHz) 
+Imote2 (208 MHz) Imote2 (416 MHz) 
+Figure 8. Execution time of ECDSA, ECIES, and ECDH
+w/ all optimization switches enabled
+20,768 
+16,018 
+13,520 
+15,658 
+11,396 
+14,344 
+17,728 
+12,852 
+17,888 
+0
+5,000 
+10,000 
+15,000 
+20,000 
+25,000 
+ECDSA ECIES ECDH 
+ROM size (byte) 
+MICAz TelosB / Tmote Sky Imote2 
+(a) ROM size
+1,774 
+1,774 
+1,504 
+1,816 
+1,816 
+1,828 
+2,064 
+2,064 
+1,510 
+0
+500 
+1,000 
+1,500 
+2,000 
+2,500 
+ECDSA ECIES ECDH 
+RAM size (byte) 
+MICAz TelosB / Tmote Sky Imote2 
+(b) RAM size
+Figure 9. Code size of ECDSA, ECIES, and ECDH w/
+all optimization switches enabled
+radio off. To be conservative, we use the current draw with
+radio on in our computation. That is, we chose 31 mA and 66
+mA for Imote2 at 13 MHz and 104 MHz.
+Figure 10 shows the energy consumption required by all
+these operations. Imote2 is the most energy efﬁcient platform
+when it runs at 104 MHz. It needs 2.86 mJ and 3.51 mJ to
+generate ECDSA signature and verify it; it needs 5.77 mJ and
+3.65 mJ to do ECIES encryption and decryption; and it needs
+3.07 mJ for the ECDH key agreement operation. MICAz is
+the most energy consuming platform. TelosB is quite efﬁcient
+at energy consumption due to its low current draw with radio
+off. Tmote Sky consumes half as TelosB does because Tmote
+13
+
+
+===== PAGE 14 =====
+83.84 
+48.04 
+58.48 
+44.13 
+93.78 
+63.18 
+44.13 
+50.82 
+27.55 
+17.11 
+21.82 
+14.23 
+35.29 
+22.96 
+14.24 
+18.95 
+13.74 
+8.54 
+10.89 
+7.12 
+17.66 
+11.49 
+7.13 
+9.48 
+10.05 
+10.72 
+13.16 
+5.25 
+21.70 
+13.73 
+5.28 
+11.55 
+2.68 
+2.86 
+3.51 
+1.40 
+5.77 
+3.65 
+1.40 
+3.07 
+0
+10 
+20 
+30 
+40 
+50 
+60 
+70 
+80 
+90 
+100 
+init 
+(ECDSA) 
+sign 
+(ECDSA) 
+verify 
+(ECDSA) 
+init 
+(ECIES) 
+encrypt 
+(ECIES) 
+decrypt 
+(ECIES) 
+init 
+(ECDH) 
+key establish 
+(ECDH) 
+Energy consumption (mJ) 
+MICAz (8 MHz) TelosB (4 MHz) Tmote Sky (8 MHz) Imote2 (13 MHz) Imote2 (104 MHz) 
+Figure 10. Energy consumption of ECDSA, ECIES, and
+ECDH w/ all optimization switches enabled
+Sky (8 MHz) is two times faster than TelosB (4 MHz).
+6.2.3. Most Storage-Efﬁcient Conﬁguration
+Many TinyOS applications may use TinyECC for authen-
+tication, encryption/decryption, or key establishment. T hus it
+is likely that TinyECC will be loaded on sensor nodes with
+other applications. Due to the resource constraint of low-e nd
+sensor platforms (e.g., MICAz, TelosB/Tmote Sky), we may
+have to reduce ROM and RAM size by disabling some opti-
+mization techniques to reserve enough space for other TinyOS
+applications.
+For example, when all optimization switches are enabled,
+ECDSA needs 17,888 bytes ROM and 1,510 bytes RAM on
+MICAz, as ﬁgure 9 shows. Stack overﬂow may happen when
+TinyECC is integrated with other programs such as TOSBase;
+the available stack for local variables may not be large enough
+due to the limited RAM (4K bytes) on MICAz. As another
+example, TelosB only has 48K bytes ROM. If ECDSA with
+all optimizations enabled is integrated with the SurgeTelo s,
+the total ROM size would be 40,380 bytes, leaving little space
+for other applications.
+We can disable all optimization switches to show how com-
+pact TinyECC could be. Figure 11 shows the execution time
+of ECDSA, ECIES and ECDH when all optimization switches
+are disabled. In this case, no pre-computation is needed, an d
+the initialization time is close to 0. Imote2 running at 416
+MHz is still the fastest one. It can perform ECDSA signature
+generation and veriﬁcation in 87 ms and 174 ms, respectively,
+and perform ECIES encryption and decryption in 172 ms and
+88 ms, respectively, and ﬁnish ECDH key agreement in 85
+ms. TelosB is the slowest platform due to the 4 MHz running
+frequency. It needs 42,583 ms and 85,728 ms for ECDSA
+signature generation and veriﬁcation, respectively. ECIES en-
+cryption and decryption require 84,928 ms and 42,736 ms, re-
+spectively. ECDH key establishment can be done in 42,198
+ms. Tmote Sky is two times faster than TelosB. MICAz is
+faster than TelosB but slower than Tmote Sky.
+The beneﬁt of disabling all optimization switches is the
+0.08 
+30723.00 
+61800.34 
+0.08 
+61401.83 
+31872.28 
+0.08 
+31208.21 
+0.10 
+42582.92 
+85727.86 
+0.10 
+84928.47 
+42735.57 
+0.09 
+42197.99 
+0.05 
+21284.39 
+42886.27 
+0.05 
+42558.09 
+21415.06 
+0.04 
+21151.53 
+0.03 
+2785.11 
+5560.35 
+0.04 
+5514.29 
+2811.87 
+0.04 
+2718.31 
+0.00 
+348.11 
+694.99 
+0.01 
+689.23 
+351.45 
+0.01 
+339.77 
+0.00 
+174.06 
+347.49 
+0.00 
+344.63 
+175.73 
+0.00 
+169.89 
+0.00 
+87.12 
+174.00 
+0.00 
+172.42 
+88.02 
+0.00 
+85.05 
+0.001 
+0.01 
+0.1 
+1
+10 
+100 
+1000 
+10000 
+100000 
+1000000 
+init 
+(ECDSA) 
+sign 
+(ECDSA) 
+verify 
+(ECDSA) 
+init 
+(ECIES) 
+encrypt 
+(ECIES) 
+decrypt 
+(ECIES) 
+init 
+(ECDH) 
+key establish 
+(ECDH) 
+Time (ms) 
+MICAz (8 MHz) TelosB (4 MHz) Tmote Sky (8 MHz) Imote2 (13 MHz) Imote2 (104 MHz) 
+Imote2 (208 MHz) Imote2 (416 MHz) 
+Figure 11. Execution time of ECDSA, ECIES, and ECDH
+w/ all optimization switches disabled
+compact code size. Figure 12 shows the code size of all
+schemes in TinyECC when all optimization switches are dis-
+abled. Due to their word size, Imote2 has the largest RAM
+size, while MICAz has the smallest RAM size. The code
+size has been reduced greatly. For MICAz, the ROM size has
+been reduced by 7,708, 8,326, and 7,384 bytes for ECDSA,
+ECIES, and ECDH, respectively; the RAM size has been re-
+duced by 1,358, 1,624, and 1,624 bytes for ECDSA, ECIES,
+and ECDH, respectively. For TelosB, the ROM size has been
+reduced by 5,348, 5,224, and 4,446 bytes for ECDSA, ECIES,
+and ECDH, respectively. Similarly, the RAM size has been re-
+duced by 1,344, 1,658, and 1,658 bytes for ECDSA, ECIES,
+and ECDH, respectively. The developer can further reduce
+ROM size of ECDH by enabling CURVE
+OPT as ﬁgures 7(a)
+and 7(c) show, but this does not work for ECDSA and ECIES.
+Since the execution time of TinyECC is much longer, the
+energy consumption of TinyECC is also increased as ﬁgure 13
+shows. Even when Imote2 runs at 104 MHz, it needs 21.83 mJ
+to generate ECDSA signature, which is almost 7.6 times more
+than the most computation-efﬁcient case. For MICAz, it re-
+quires almost 15.4 times more energy to generate an ECDSA
+signature and 25.4 times more energy to verify a signature
+than it does in the most computation efﬁcient case. Moreover,
+a node needs 15.7 times more energy for ECIES encryption,
+12.1 times more energy for decryption, and 14.7 times more
+energy to establish a key in ECDH. For TelosB/Tmote Sky, a
+node needs 13.4 and 21.2 times more energy for ECDSA sig-
+nature generation and veriﬁcation, 13.0 and 10.1 times more
+energy for ECIES encryption and decryption, and 12.0 times
+more energy for ECDH key establishment. For Imote2, it
+needs 7.6 and 12.4 times more energy for ECDSA signature
+generation and veriﬁcation, 7.5 and 6.0 times more energy for
+ECIES encryption and decryption, and 6.9 times more energy
+for ECDH key establishment.
+14
+
+
+===== PAGE 15 =====
+12,442 
+8,634 
+8,172 
+10,434 
+6,950 
+8,644 
+10,904 
+6,876 
+10,180 
+0
+5,000 
+10,000 
+15,000 
+20,000 
+25,000 
+ECDSA ECIES ECDH 
+ROM size (byte) 
+MICAz TelosB / Tmote Sky Imote2 
+(a) ROM size
+150 
+150 
+160 
+158 
+158 
+176 
+172 
+172 
+152 
+0
+500 
+1,000 
+1,500 
+2,000 
+2,500 
+ECDSA ECIES ECDH 
+RAM size (byte) 
+MICAz TelosB / Tmote Sky Imote2 
+(b) RAM size
+Figure 12. Code size of ECDSA, ECIES, and ECDH w/
+all optimization switches disabled
+0.00 
+737.35 
+1483.21 
+0.00 
+1473.64 
+764.93 
+0.00 
+749.00 
+0.00 
+229.95 
+462.93 
+0.00 
+458.61 
+230.77 
+0.00 
+227.87 
+0.00 
+114.94 
+231.59 
+0.00 
+229.81 
+115.64 
+0.00 
+114.22 
+0.00 
+82.02 
+163.75 
+0.00 
+162.40 
+82.81 
+0.00 
+80.05 
+0.00 
+21.83 
+43.58 
+0.00 
+43.21 
+22.04 
+0.00 
+21.30 
+0
+400 
+800 
+1200 
+1600 
+2000 
+init 
+(ECDSA) 
+sign 
+(ECDSA) 
+verify 
+(ECDSA) 
+init 
+(ECIES) 
+encrypt 
+(ECIES) 
+decrypt 
+(ECIES) 
+init 
+(ECDH) 
+key establish 
+(ECDH) 
+Energy consumption (mJ) 
+MICAz (8 MHz) TelosB (4 MHz) Tmote Sky (8 MHz) Imote2 (13 MHz) Imote2 (104 MHz) 
+Figure 13. Energy consumption of ECDSA, ECIES, and
+ECDH w/ all optimization switches disabled
+7. Related Work
+A comprehensive guide for elliptic curve cryptography is
+given in [20]. A brief introduction to ECC can be found
+in [41]. Additional documentation on ECC can be found
+in [9–11]. There have been numerous ECC implementations
+in various contexts (e.g., Crypto++ [13], OpenSSL [3], MIR-
+ACL [39], NSS [34]). Most of these implementations are
+aimed at traditional computing platforms such as PCs.
+Several recent efforts have focused on sensor platforms,
+such as the Mica series of motes. Malan et al. imple-
+mented ECC over binary extension ﬁelds F2m on TinyOS for
+Mica2 [31]. Unfortunately, due to the constraints on the typ -
+ical microprocessors used by sensors, it is difﬁcult to obta in
+efﬁcient ECC over F2m. Gura et al. implemented and com-
+pared ECC and RSA on Atmel ATmega128 in assembly [19].
+However, it is not clear how well their implementation can be
+integrated into sensor applications. Wang et al. implement ed
+ECC on speciﬁc 160-bit elliptic curves on MICAz and TelosB
+running TinyOS [40]. They were able to obtain very fast ex-
+ecution time by hard-coding all the curve parameters into as -
+sembly code.
+A common limitation of all these efforts is that all these at-
+tempts were developed as independent packages/applicatio ns
+without seriously considering the resource demands of sensor
+network applications. As a result, developers may found it
+difﬁcult, and sometimes impossible, to integrate an ECC im-
+plementation with the sensor network applications (e.g., n ot
+enough ROM or RAM), though the ECC implementation may
+be okay on its own. In contrast, TinyECC provides a set of
+optimization switches that allow itself to be conﬁgured wit h
+different resource consumptions. This allows TinyECC to be
+ﬂexibly integrated into sensor network applications.
+8. Conclusion
+In this paper, we presented the design, implementation,
+and evaluation of TinyECC, a conﬁgurable library for ECC
+operations in wireless sensor networks. A unique feature of
+TinyECC is its conﬁgurability. It provides a number of op-
+timization switches, which can turn speciﬁc optimizations on
+or off based on developers’ needs. Different combinations o f
+the optimizations have different execution time and resour ce
+consumptions, and thus give the developers great ﬂexibilit y
+in integrating TinyECC into sensor network applications. We
+also performed a series of experiments to evaluate the perfor-
+mance and resource consumptions of TinyECC with different
+combinations of enabled optimizations. In particular, our ex-
+perimental results gave the most computationally efﬁcientand
+the most storage efﬁcient conﬁgurations of TinyECC.
+In our future work, we plan to investigate techniques that
+can further speed up the execution and reduce the resource
+consumption for ECC-based PKC operations. We will also
+explore opportunities that can harness resources on high-e nd
+sensors in hybrid sensor networks.
+References
+[1] Imote2: High-performance wireless sensor network node .
+http://www.xbow.com/Products/Product_pdf_
+files/Wireless_pdf/Imote2_Datasheet.pdf.
+[2] MICAz: Wireless measurement system. http:
+//www.xbow.com/Products/Product_pdf_
+files/Wireless_pdf/MICAz_Datasheet.pdf.
+[3] The openssl project. http://www.openssl.org/.
+[4] SSL 3.0 speciﬁcation. http://wp.netscape.com/eng/
+ssl3/.
+15
+
+
+===== PAGE 16 =====
+[5] TelosB mote platform. http://www.xbow.com/
+Products/Product_pdf_files/Wireless_pdf/
+TelosB_Datasheet.pdf.
+[6] TinyOS: An open-source OS for the networked sensor regim e.
+http://www.tinyos.net/.
+[7] Tmote sky: Reliable low-power wireless sensor network-
+ing eases development and deployment. http://www.
+moteiv.com/products-tmotesky.php .
+[8] I.F. Akyildiz, W. Su, Y . Sankarasubramaniam, and E. Cayi rci.
+Wireless sensor networks: A survey. Computer Networks ,
+38(4):393–422, 2002.
+[9] American Bankers Association. ANSI X9.62-1998: Public Key
+Cryptography for the Financial Services Industry: the Elli ptic
+Curve Digital Signature Algorithm (ECDSA), 1999.
+[10] Certicom Research. Standards for efﬁcient cryptograp hy –
+SEC 1: Elliptic curve cryptography. http://www.secg.
+org/download/aid-385/sec1_final.pdf , Septem-
+ber 2000.
+[11] Certicom Research. Standards for efﬁcient cryptograp hy
+– SEC 2: Recommended elliptic curve domain param-
+eters. http://www.secg.org/collateral/sec2_
+final.pdf, September 2000.
+[12] H. Chan, A. Perrig, and D. Song. Random key predistribut ion
+schemes for sensor networks. In IEEE Symposium on Research
+in Security and Privacy, pages 197–213, 2003.
+[13] W. Dai. Crypto++ library 5.5. http://www.cryptopp.
+com/, May 2007.
+[14] J. Deng, R. Han, and S. Mishra. Secure code distribution in
+dynamically programmable wireless sensor networks. In Pro-
+ceedings of the Fifth International Conference on Informat ion
+Processing in Sensor Networks (IPSN ’06), April 2006.
+[15] W. Difﬁe and M.E. Hellman. New directions in cryptogra-
+phy. IEEE Transactions on Information Theory , IT-22:644–
+654, November 1976.
+[16] W. Du, J. Deng, Y . S. Han, and P. Varshney. A pairwise key
+pre-distribution scheme for wireless sensor networks. In Pro-
+ceedings of 10th ACM Conference on Computer and Commu-
+nications Security (CCS’03), pages 42–51, October 2003.
+[17] L. Eschenauer and V . D. Gligor. A key-management scheme
+for distributed sensor networks. In Proceedings of the 9th ACM
+Conference on Computer and Communications Security, pages
+41–47, November 2002.
+[18] D. Gay, P. Levis, R. von Behren, M. Welsh, E. Brewer, and
+D. Culler. The nesC language: A holistic approach to net-
+worked embedded systems. In Proceedings of Programming
+Language Design and Implementation (PLDI ’03), June 2003.
+[19] N. Gura, A. Patel, and A. Wander. Comparing elliptic cur ve
+cryptography and RSA on 8-bit CPUs. In Proceedings of the
+2004 Workshop on Cryptographic Hardware and Embedded
+Systems (CHES 2004), pages 119–132, August 2004.
+[20] D. Hankerson, A. Menezes, and S. Vanstone. Guide to Elliptic
+Curve Cryptography. Springer, 2004.
+[21] S. Kent and R. Atkinson. IP authentication header. IETF RFC
+2402, November 1998.
+[22] S. Kent and R. Atkinson. IP encapsulating security payl oad
+(ESP). IETF RFC 2406, November 1998.
+[23] D.E. Knuth. The Art of Computer Programming , volume 2:
+Seminumerical Algorithms. Addison-Wesley, third edition ,
+1997. ISBN: 0-201-89684-2.
+[24] RSA Laboratories. RSAREF: A cryptographic toolkit (ve rsion
+2.0), March 1994.
+[25] P.E. Lanigan, R. Gandhi, and P. Narasimhan. Sluice: Sec ure
+dissemination of code updates in sensor networks. In Proceed-
+ings of the 26th International Conference on Distributed Com-
+puting Systems (ICDCS ’06), July 2006.
+[26] A. Liu, P. Kampanakis, and P. Ning. TinyECC: Elliptic cu rve
+cryptography for sensor networks (version 0.3). http://
+discovery.csc.ncsu.edu/software/TinyECC/.
+[27] D. Liu and P. Ning. Establishing pairwise keys in distri buted
+sensor networks. In Proceedings of 10th ACM Conference on
+Computer and Communications Security (CCS’03) , pages 52–
+61, October 2003.
+[28] D. Liu and P. Ning. Multi-level
+µTESLA: Broadcast authen-
+tication for distributed sensor networks. ACM Transactions in
+Embedded Computing Systems (TECS), 3(4):800–836, 2004.
+[29] D. Liu and P. Ning. Improving key pre-distribution withdeploy-
+ment knowledge in static sensor networks. ACM Transactions
+on Sensor Networks, 1(2):204–239, November 2005.
+[30] D. Liu, P. Ning, S. Zhu, and S. Jajodia. Practical broadc ast
+authentication in sensor networks. In Proceedings of the 2nd
+Annual International Conference on Mobile and Ubiquitous
+Systems: Networking and Services (MobiQuitous 2005) , July
+2005.
+[31] D. Malan, M. Welsh, and M. Smith. A public-key infrastructure
+for key distribution in tinyos based on elliptic curve cryptogra-
+phy. In Proceedings of IEEE Conference on Sensor and Ad Hoc
+Communications and Networks (SECON), pages 71–80, 2004.
+[32] K. Malasri and L. Wang. Addressing security in medical sensor
+networks. In HealthNet ’07: Proceedings of the 1st ACM SIG-
+MOBILE international workshop on Systems and networking
+support for healthcare and assisted living environments, pages
+7–12, 2007.
+[33] A.J. Menezes, P. C. van Oorschot, and S.A. Vanstone. Hand-
+book of Applied Cryptography . CRC Press, 1996. ISBN: 0-
+8493-8523-7.
+[34] Mozilla. Network security service (NSS). http://www.
+mozilla.org/projects/security/pki/nss/.
+[35] National Institute of Standards and Technology. Digit al signa-
+ture standard. Federal Information Processing Standard 18 6,
+http://csrc.nist.gov/publications/., 1993.
+[36] National Institute of Standards and Technology. Recommended
+elliptic curves for federal government use, August 1999.
+[37] A. Perrig, R. Canetti, D. Song, and D. Tygar. Efﬁcient au then-
+tication and signing of multicast streams over lossy channe ls.
+In Proceedings of the 2000 IEEE Symposium on Security and
+Privacy, May 2000.
+[38] A. Perrig, R. Szewczyk, V . Wen, D. Culler, and D. Tygar.
+SPINS: Security protocols for sensor networks. In Proceedings
+of Seventh Annual International Conference on Mobile Com-
+puting and Networks, pages 521–534, July 2001.
+[39] Shamus Software. Multiprecision integer and rational arith-
+metic c/c++ library (MIRACL). http://www.shamus.
+ie/.
+[40] H. Wang and Q. Li. Efﬁcient implementation of public key
+16
+
+
+===== PAGE 17 =====
+cryptosystems on mote sensors. In Proceedings of Interna-
+tional Conference on Information and Communication Security
+(ICICS), pages 519–528, Dec. 2006.
+[41] Wikipedia. Elliptic curve cryptography. http:
+//en.wikipedia.org/wiki/Elliptic_curve_
+cryptography. Visited on May 23rd, 2007.
+17

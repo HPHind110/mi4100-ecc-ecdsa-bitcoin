@@ -1,0 +1,1296 @@
+
+
+===== PAGE 1 =====
+Performance Analysis of Elliptic Curve Cryptography for
+SSL
+Vipul Gupta
+Sun Microsystems, Inc.
+2600 Casey Avenue
+Mountain View, CA 94303
+vipul.gupta@sun.com
+Sumit Gupta
+Sun Microsystems, Inc.
+2600 Casey Avenue
+Mountain View, CA 94303
+gupta.sumit@sun.com
+Sheueling Chang
+Sun Microsystems, Inc.
+2600 Casey Avenue
+Mountain View, CA 94303
+sheueling.chang@sun.com
+ABSTRACT
+Elliptic Curve Cryptography (ECC) is emerging as an at-
+tractive public-key cryptosystem for mobile/wireless envi-
+ronments. Compared to traditional cryptosystems like RSA,
+ECC oﬀers equivalent security with smaller key sizes, which
+results in faster computations, lower power consumption, as
+well as memory and bandwidth savings. This is especially
+useful for mobile devices which are typically limited in terms
+of their CPU, power and network connectivity.
+However, the true impact of any public-key cryptosystem
+can only be evaluated in the context of a security proto-
+col. This paper presents a ﬁrst estimate of the performance
+improvements that can be expected in SSL (Secure Socket
+Layer), the dominant security protocol on the Web today,
+by adding ECC support.
+Categories and Subject Descriptors
+C.4 [Performance of Systems]: Measurement techniques;
+E.3 [Data Encryption]: Public key cryptosystems; C.2.2
+[Computer Communication Networks]: Network Pro-
+tocols— applications
+General Terms
+Security, Performance
+Keywords
+Internet Security, Wireless, Secure Socket Layer (SSL), El-
+liptic Curve Cryptography (ECC)
+1. INTRODUCTION
+With the rapid deployment of applications like online bank-
+ing, stock trading and corporate remote access, recent years
+have seen an explosive growth in the amount of sensitive
+data exchanged over the Internet. These days, an increas-
+ing number of Internet hosts are battery-powered, wireless,
+Permission to make digital or hard copies of all or part of this work for
+personal or classroom use is granted without fee provided that copies are
+not made or distributed for proﬁt or commercial advantage and that copies
+bear this notice and the full citation on the ﬁrst page. To copy otherwise, to
+republish, to post on servers or to redistribute to lists, requires prior speciﬁc
+permission and/or a fee.
+WiSe’02, September 28, 2002, Atlanta, Georgia, USA.
+Copyright 2002 ACM 1-58113-585-8/02/0005 ...
+$5.00.
+handheld devices with strict memory, CPU, latency and
+bandwidth constraints [1]. Given these trends, there is a
+clear need for eﬃcient, scalable security mechanisms and
+protocols that operate well in both wired and wireless envi-
+ronments.
+Most Internet security protocols (e.g. SSL [2], IPsec) em-
+ploy a public-key cryptosystem to derive symmetric-keys
+and then use fast symmetric-key algorithms to ensure conﬁ-
+dentiality, integrity and source authentication of bulk data.
+RSA is the most commonly used public-key cryptosystem
+today. The security of a system is only as good as that
+of its weakest component; for this reason, the work factor
+needed to break a symmetric key must match that needed
+to break the public-key cryptosystem used for key establish-
+ment. Due to expected advances in cryptanalysis and in-
+creases in computing power available to an adversary, both
+symmetric and public-key sizes must grow over time to of-
+fer acceptable security for a ﬁxed protection life span, and
+Table 1 [3] shows this expected key-size growth for various
+symmetric and public-key cryptosystems.
+Table 1: Computationally equivalent key sizes.
+Symmetric ECC RSA/DH/DSA
+80 163 1024
+128 283 3072
+192 409 7680
+256 571 15360
+As shown in Table 1, the Elliptic Curve Cryptosystem
+(ECC), oﬀers the highest strength per bit of any known
+public-key cryptosystem today. ECC not only uses smaller
+keys for equivalent strength compared to traditional public-
+key cryptosystems like RSA, the key size disparity grows as
+security needs increase. This makes it especially attractive
+for constrained wireless devices because smaller keys result
+in power, bandwidth and computational savings. ECC was
+ﬁrst proposed by Victor Miller [5] and independently by Neal
+Koblitz [6] in the mid 1980s and today it has evolved into
+a mature public-key cryptosystem. It was also recently en-
+dorsed by the U.S. government [4].
+However, the true beneﬁt and performance impact of any
+cryptosystem is closely tied to how it is used within a secu-
+rity protocol. In particular, it is imperative that expected
+performance improvements at the protocol level be carefully
+weighed against the usual costs associated with deploying
+any new technology.
+
+
+===== PAGE 2 =====
+This paper describes our work on integrating ECC into the
+Secure Socket Layer Protocol and a preliminary evaluation
+of the performance impact. We chose SSL because it is
+the most popular and trusted security protocol on the Web.
+In the form of HTTPS (HTTP secured using SSL), SSL is
+single handedly responsible for the widespread adoption of
+e-commerce and many emerging wireless devices too now
+have SSL capabilities. Our estimates are based on using the
+cryptographic execution times on an SSL client and server as
+a ﬁrst approximation for the total processing time in an SSL
+transaction. Such an analysis can be generalized to estimate
+the performance of a cryptosystem within any other security
+protocol as well.
+This paper is structured as follows. Section 2 provides
+an overview of ECC technology. Section 3 describes the
+SSL protocol and its usage of RSA and ECC public-key
+cryptosystems. Section 4 summarizes the public-key crypto-
+graphic operations needed to establish an SSL connection.
+An analytical performance comparison of RSA and ECC
+based SSL connections is presented in Section 5. Finally,
+we summarize our conclusions and discuss future work in
+Section 6.
+2. ECC OVERVIEW
+At the foundation of every public key cryptosystem is a
+hard mathematical problem that is computationally infea-
+sible to solve. For instance, RSA and Diﬃe-Hellman rely
+on the hardness of integer factorization and the discrete log-
+arithm problem respectively. Unlike these cryptosystems
+which operate over integer ﬁelds, the Elliptic Curve Cryp-
+tosystems (ECC) operates over points on an elliptic curve.
+The fundamental mathematical operation in RSA and
+Diﬃe-Hellman is modular integer exponentiation. However,
+the core of elliptic curve arithmetic is an operation called
+scalar point multiplication, which computesQ = kP (a point
+P multiplied k times resulting in another point Q on the
+curve). Scalar multiplication is performed through a com-
+bination of point-additions (which add two distinct points
+together) and point-doublings (which add two copies of a
+point together). For example, 11 P c a nb ee x p r e s s e da s
+11P =( 2 ∗ ((2 ∗ (2 ∗ P)) + P)) + P.
+The security of ECC relies on the hardness of solving
+the Elliptic Curve Discrete Logarithm Problem (ECDLP),
+which states that given P and Q = kP , it is hard to ﬁnd
+k. While a brute-force approach is to compute all multiples
+of P until Q is found, k would be so large in a real crypto-
+graphic application that it would be infeasible to determine
+k in this way.
+Besides the curve equation, an important elliptic curve pa-
+rameter is thebase point, G, which is ﬁxed for each curve. In
+the Elliptic Curve Cryptosystem, the large random integer
+k is kept private and forms the secret key, while the result
+Q of multiplying the the private keyk with the curve’s base
+point G serves as the corresponding public key.
+Not every elliptic curve oﬀers strong security properties
+and for some curves the ECDLP may be solved eﬃciently.
+Since a a poor choice of the curve can compromise secu-
+rity, standards organizations like NIST and SECG have pub-
+lished a set of recommended curves [4] with well understood
+security properties. The use of these curves is also recom-
+mended as a means of facilitating interoperability between
+diﬀerent implementations of a security protocol.
+Elliptic Curve Diﬃe Hellman (ECDH) [7] and Elliptic
+Curve Digital Signature Algorithm (ECDSA) [8] are the El-
+liptic Curve counterparts of the Diﬃe-Hellman key exchange
+and Digital Signature Algorithm, respectively.
+In ECDH key agreement, two communicating parties A
+and B agree to use the same curve parameters. They gener-
+ate their private keys, k
+A and kB and corresponding public
+keys QA = kA.G and QB = kB .G. The parties exchange
+their public keys. Finally each multiplies its private key and
+the other’s public key to arrive at a common shared secret
+k
+A.QB = kB .QA = kA.KB .G.
+While a description of ECDSA is not provided here, it
+similarly parallels DSA.
+3. SSL OPERATION
+3.1 Overview
+Secure Sockets Layer [2] is the most widely deployed and
+used security protocol on the Internet today. The protocol
+has withstood years of scrutiny by the security community
+and is now trusted to secure virtually all sensitive web-based
+applications ranging from online banking and stock trading
+to e-commerce.
+SSL oﬀers encryption, source authentication and integrity
+protection for data exchanged over insecure, public networks.
+It operates above a reliable transport service like TCP and
+has the ﬂexibility to accommodate diﬀerent cryptographic
+algorithms for key agreement, encryption and hashing. How-
+ever, the speciﬁcation does recommend particular combina-
+tions of these algorithms, called cipher suites, which have
+well-understood security properties. For example, a cipher
+suite such asRSA-RC4-SHA would indicate RSA as the key
+exchange mechanism, RC4 for bulk encryption, and SHA for
+hashing.
+The two main components of SSL are the Handshake pro-
+tocol and the Record Layer protocol. The Handshake pro-
+tocol allows an SSL client and server to negotiate a com-
+mon cipher suite, authenticate each other
+1, and establish
+a shared master secret using public-key cryptographic algo-
+rithms. The Record Layer derives symmetric-keys from the
+master secret and uses them with faster symmetric-key algo-
+rithms for bulk encryption and authentication of application
+data.
+Public-key cryptographic operations are the most com-
+putationally expensive portion of SSL processing. SSL al-
+lows the re-use of a previously established master secret re-
+sulting in an abbreviated handshake that does not involve
+any public-key cryptography, and requires fewer and shorter
+messages. However, a client and server must perform a full
+handshake on their ﬁrst interaction. Moreover, practical is-
+sues such as server load, limited session cache and naive
+load balancers can adversely impact the ability to use an
+abbreviated handshake. Therefore, speeding up the public-
+key operations in SSL still remains a very active area for
+research and development.
+1Client authentication is optional. Only the server is typi-
+cally authenticated at the SSL layer and client authentica-
+tion is is achieved at the application layer,e.g. through the
+use of passwords sent over an SSL-protected channel. How-
+ever, some deployment scenarios do require stronger client
+authentication through certiﬁcates.
+
+
+===== PAGE 3 =====
+ServerClient
+ClientHello (Initial proposal)
+(Conveys server's authenticated
+(Rarely used, has acceptable types, CAs)
+(Client verifies server's encryption key
+ServerKeyExchange*
+CertificateRequest*
+(Has client's RSA verification key)
+ServerHelloDone
+ServerHello
+Certificate*
+Certificate*
+ClientKeyExchange
+}
+(Ciphersuite negotiated)
+RSA encryption key)
+and sends encrypted random secret)
+CertificateVerify* (Proves possession of client's RSA
+signing key)
+Application Data Application Data
+Finished
+[ChangeCipherSpec]
+[ChangeCipherSpec]
+Finished (Ready for bulk encryption, authentication)
+Figure 1: RSA-based SSL Handshake
+3.2 RSA-based Handshake
+Today, the most commonly used public-key cryptosystem
+for master-key establishment is RSA. Figure 1 shows the
+operation of an RSA-based SSL handshake.
+In this type of SSL handshake, the client and server ﬁrst
+exchange random nonces (used for replay protection) and
+negotiate a cipher suite with ClientHello and ServerHello
+messages. The server then sends its signed RSA public-key
+either in the ServerCertiﬁcate message or the ServerKeyEx-
+change message. To verify the server’s RSA public key,
+the client performs an RSA public key operation. Then
+the client generates a 48-byte random number (the pre-
+master secret), encrypts it with the server’s public key (an
+RSA public-key operation), and sends it in theClientKeyEx-
+change message. The server uses its RSA private-key to de-
+crypt the premaster secret. Both end-points then use the
+premaster secret to create a master secret which, along with
+previously exchanged nonces, is used to derive the cipher
+keys, initialization vectors and MAC (Message Authentica-
+tion Code) keys for bulk encryption by the Record Layer.
+The server can optionally request client authentication at
+the SSL layer by sending a CertiﬁcateRequest message list-
+ing acceptable certiﬁcate types and certiﬁcate authorities.
+In this case, besides performing the operations as described
+above, the client sends its RSA public-key in a ClientCer-
+tiﬁcate and proves possession of the corresponding private
+key by including a digital signature in the CertiﬁcateVer-
+ify message. Producing this signature requires the client to
+perform an RSA private-key operation.
+3.3 ECC-based Handshake
+A draft [3] describing the use of ECC with TLS2 has been
+proposed at the IETF, and it forms the basis of our analysis
+in this paper.
+Since ECC is a public-key cryptographic mechanism, only
+the handshake protocol is aﬀected by incorporating ECC
+into SSL. Figure 2 shows the operation of an ECC-based SSL
+handshake, as speciﬁed in [3]. Through the ﬁrst two mes-
+sages (processed in the same way as for RSA) the client and
+server negotiate an ECC based cipher suite (for example,
+ECDH-ECDSA-RC4-SHA). However, the ServerCertiﬁcate
+message contains the server’s Elliptic Curve Diﬃe-Hellman
+(ECDH) public key signed by a certiﬁcate authority using
+the Elliptic Curve Digital Signature Algorithm (ECDSA).
+After validating the ECDSA signature, the client conveys
+its ECDH public-key to the server in theClientKeyExchange
+2TLS[9] is another name for SSL version 3.1
+ServerClient
+ClientHello (Initial proposal)
+(Has server’s authenticated ECDH
+ServerHello
+Certificate*
+(Ciphersuite negotiated)
+(Rarely used, has acceptable types, CAs)
+ServerKeyExchange*
+CertificateRequest*
+ServerHelloDone
+Certificate*
+public key certified w/ ECDSA signature)
+(Has client’s long-term ECDH or
+ECDSA public-key)
+(Client verifies server’s key,
+computes ECDH shared secret)
+ClientKeyExchange (If not empty, contains client’s
+ephemeral ECDH public key)
+CertificateVerify* (If needed, proves possession of client’s
+ECDSA signing key)
+Application Data Application Data
+Finished
+[ChangeCipherSpec]
+[ChangeCipherSpec]
+Finished (Ready for bulk encryption, authentication)
+Figure 2: ECC-based SSL Handshake
+message. Next, each entity uses its own ECDH private-key
+and the other’s public-key to perform an ECDH operation
+and arrive at a shared premaster secret. The derivation of
+the master secret and symmetric keys is unchanged com-
+pared to RSA.
+Client authentication is still optional but the actual mes-
+sage exchange depends on the type of authentication re-
+quested by the server and the kind of certiﬁcate a client
+possesses. If the client certiﬁcate has a long term ECDSA
+key, client authentication works similarly to the RSA case
+– the client sends its certiﬁcate in the ClientCertiﬁcate,a
+newly generated (ephemeral) ECDH public-key in theClien-
+tKeyExchange, and signs the CertiﬁcateVerify message us-
+ing its ECDSA private key.
+However, if the client’s certiﬁcate contains a long-term
+ECDH public-key, it is sent to the server in the ClientCer-
+tiﬁcate message. In this case, the ClientKeyExchange mes-
+sage is empty and the CertiﬁcateVerify message is not sent.
+The client’s ability to generate a validFinished message im-
+plicitly proves possession of the ECDH private-key.
+The second form of client authentication is computation-
+ally cheaper for both sides but requires the client to have an
+ECDH certiﬁcate with the same curve parameters as those
+in the server certiﬁcate. If a client wishes to interact with
+multiple servers that use diﬀerent parameters, it would need
+multiple certiﬁcates to use the second form of authentica-
+tion.
+4. PUBLIC-KEY CRYPTOGRAPHY IN SSL
+Table 2 summarizes the various public-key cryptographic
+operations performed by a client and server in diﬀerent modes
+of the of the SSL handshake.
+4.1 Without Client Authentication
+1. RSA Handshake
+The client performs two RSA public-key operations –
+one to verify the server’s certiﬁcate and another to
+encrypt the premaster secret with the server’s public
+key. The Server only performs one RSA private-key
+operation to decrypt the ClientKeyExchange message
+and recover the premaster secret.
+2. ECDH-ECDSA Handshake
+The client performs an ECDSA veriﬁcation to verify
+
+
+===== PAGE 4 =====
+Table 2: Cryptographic operations in an SSL Handshake.
+RSA ECDH-ECDSA
+Client RSAverify +R S Aencrypt ECDSAverify +E C D Hop
+Server RSAdecrypt ECDHop
+(a) Only the server is authenticated
+RSA ECDH-ECDSA
+Client RSAverify +R S Aencrypt +R S Asign (i) ECDSAverify +E C D Hop or
+(ii) ECDSAverify + ECDSAsign +E C D Hop
+Server 2 ∗ RSAverify +R S Adecrypt (i) ECDSAverify +E C D Hop or
+(ii) 2 ∗ ECDSAverify +E C D Hop
+(b) Both client and server are authenticated
+the server’s ECDSA certiﬁcate and then an ECDH op-
+eration using its private ECDH key and the server’s
+public ECDH key to compute the shared premaster.
+All the server needs to do is perform an ECDH oper-
+ation to arrive at the same secret.
+4.2 With Client Authentication
+1. RSA Handshake
+The client performs two RSA public-key operations
+(same as without client authentication) but addition-
+ally performs an RSA private-key operation to gen-
+erate the CertiﬁcateVerify message The server per-
+forms two RSA public-key operations (one to verify the
+client’s certiﬁcate and another to verify the client’s sig-
+nature in theCertiﬁcateVerify message) and a private-
+key operation to decrypt the premaster secret
+2. ECDH-ECDSA Handshake
+(i) When the client uses an ECDH certiﬁcate, both
+sides perform an ECDSA veriﬁcation operation on the
+other’s certiﬁcate followed by an ECDH operation to
+compute the premaster secret.
+(ii) When the client uses an ECDSA certiﬁcate, the op-
+erations required on the two sides are asymmetric. The
+client performs an ECDSA veriﬁcation of the server’s
+certiﬁcate, an ECDH operation to compute the pre-
+master secret and an ECDSA signature to generate
+the CertiﬁcateVerify message. The server performs an
+ECDH operation to compute the premaster secret and
+two ECDSA veriﬁcations – one to verify the client’s
+certiﬁcate and another to verify the CertiﬁcateVerify
+message.
+5. PERFORMANCE EV ALUATION
+5.1 Performance Metrics
+While Table 2 identiﬁes the individual cryptographic op-
+erations for the two sides in an SSL connection, the relevant
+performance metrics for the client and server may be quite
+diﬀerent. An appropriate choice of such metrics is key to
+evaluate “perceived” performance accurately. In the case of
+a server that aggregates thousands of SSL requests, connec-
+tion throughput (number of connections handled per sec-
+ond) is important. On the other hand, for a typical client
+which sequentially establishes one SSL connection at a time,
+connection latency is more important.
+As a ﬁrst approximation, we use the following two metrics
+for performance comparisons:
+Handshake Crypto Latency This is the total time spent
+on performing cryptographic operations on the client
+and server. For instance, in the case of an RSA hand-
+shake without client authentication, this is the sum of
+times spent by the client doing two RSA public key
+operations and the server doing one RSA private key
+operation.
+Server Crypto Throughput This is the rate at which the
+server can perform the cryptographic operations needed
+in the handshake. The client’s performance is not a
+factor because the server can interleave multiple con-
+nections from diﬀerent clients. For instance, in the
+case of an ECDH-ECDSA handshake without client
+authentication, the Server Crypto Throughput mea-
+sured in connections per second is 1000/( ECDH
+op
+time in milliseconds).
+Besides the public-key cryptographic operations, a full
+handshake also involves other delays due to message pars-
+ing, hashing and network latency. Therefore, the handshake
+crypto latency serves as a lower bound on the total hand-
+shake latency. Similarly, the Server Crypto Throughput ﬁg-
+ure only provides an upper bound on the actual SSL con-
+nection rate. Section 6 describes our plans regarding an em-
+pirical performance study involving actual measurements of
+SSL-level performance.
+Network round trip delays can be a signiﬁcant component
+of the handshake latency especially in the case of a slow
+wireless network such as CDPD. Latencies in the TCP/IP
+stack and web server implementation can further add to user
+perceived delay.
+5.2 Measured algorithm-level performance
+As part of adding ECC support to OpenSSL [10], the
+most widely used open source implementation of SSL, we
+have enhanced the OpenSSL0.9.6b cryptographic library to
+support ECDH and ECDSA. We have also added the ability
+to generate and process X.509 certiﬁcates containing ECC
+keys.
+
+
+===== PAGE 5 =====
+Table 3: Measured performance of public-key algorithms (in milliseconds).
+RSAencrypt,verif y RSAdecrypt,sign ECDSAverify ECDSAsign ECDHop
+Ultra-80 1.7 32.1 13.0 6.8 6.1
+6.1 205.5 18.1 9.2 8.7
+Yopy 10.8 188.7 46.5 24.5 22.9
+39.1 1273.8 76.6 39.0 37.7
+Table 3 shows the measured performance of primitive RSA,
+ECDH, and ECDSA operations using the OpenSSL0.9.6b
+speed program (enhanced to include ECC) on two plat-
+forms: (i) Yopy, a Linux PDA equipped with a 200MHz
+StrongARM processor, and (ii) an Ultra
+TM-80, a Sun server
+equipped with a 450MHz UltraSPARC II processor. There
+are two rows of numbers for each platform. The top row is
+for 1024-bit RSA and 163-bit ECC whereas the bottom row
+is for 2048-bit RSA and 193-bit ECC.
+The next section uses these measured numbers for the
+various plots.
+5.3 Analytical SSL-level performance
+To simulate various real world usage scenarios, we com-
+pare RSA and ECDH-ECDSA handshakes in each of the
+following cases:
+Case I A Yopy to another Yopy (to model a Peer-to-Peer
+scenario of two small wireless handhelds communicat-
+ing),
+Case II A Yopy client talking to an Ultra 80 server (to
+simulate a wireless web scenario of a wireless handheld
+requesting a secure page from a webserver), and
+Case III An Ultra 80 talking to another Ultra-80 (to model
+a usual desktop to webserver interaction).
+The comparison in Figure 3(a) uses 1024-bit RSA and
+163-bit ECC keys and does not involve client authentica-
+tion. In terms of Server Crypto Throughput, ECC is more
+than ﬁve times better than RSA on the two platforms we
+consider. In terms of Handshake Crypto Latency, the com-
+parison is more interesting. When both the SSL client and
+the server are on the same platform, we notice that ECC is
+nearly twice as fast as RSA. However, in the case of the Yopy
+client communicating with the Ultra-80 server, RSA beats
+out ECC. Compared to Case I, the SSL server is running on
+a faster platform in Case II and as shown in Table 3, this
+change speeds up the RSA decryption to a greater extent
+(from 188.7 ms to 32.1 ms) than it speeds up the ECDH
+operation (from 22.9 ms to 6.1 ms). The gain this provides
+to RSA puts it ahead of ECC in this situation.
+Figure 3(b) compares the same scenarios as Figure 3(a)
+but with the addition of client-side authentication. As ex-
+pected, client authentication using ECDH certiﬁcates per-
+forms better than client authentication using ECDSA cer-
+tiﬁcates. More importantly, ECC beats out RSA on all the
+criteria we consider. While ECC’s advantage over RSA in
+terms of Server Crypto Throughput is not as spectacular as
+before, it is still considerable especially when ECDH certiﬁ-
+cates are used.
+We repeated these experiments using 2048-bit RSA keys
+and 193-bit ECC keys. We found ECC to perform better
+than RSA without any exceptions, even for Case II without
+client authentication. Figure 4 shows the impact of using
+higher key sizes for the Yopy client communicating with the
+Ultra-80 server with and without client authentication. It
+is clear from the ﬁgure that the performance advantage of
+ECC over RSA increases at higher key sizes.
+6. CONCLUSIONS AND FUTURE WORK
+The above analysis suggests that the use of ECC cipher
+suites can oﬀer signiﬁcant performance beneﬁts to SSL clients
+and servers especially as security needs increase. Already,
+there is signiﬁcant momentum behind widespread adoption
+of the Advanced Encryption Standard (AES) which speci-
+ﬁes the use of 128-bit, 192-bit and 256-bit symmetric keys.
+As indicated in Table 1, key sizes for public key cryptosys-
+tems used to establish AES keys will also need to increase
+from current levels. We believe this trend bodes well for
+the future of Elliptic Curve Cryptography and not just for
+wireless environments.
+We have completed implementing ECC cipher suites in
+OpenSSL0.9.6b and currently migrating those changes to
+the latest OpenSSL version. Webservers and browsers that
+use OpenSSL for SSL processing can now use our variant
+to communicate securely via ECC cipher suites. We have
+validated this claim for Dillo and Lynx, two open-source
+browsers, and the Apache web server.
+We are now in the process of setting up a testbed that
+would allow us to empirically study the impact of using
+ECC-based cipher suites. We intend to discuss those results
+in a more detailed follow-on publication.
+7. ACKNOWLEDGMENTS
+The authors would like to thank Hans Eberle, Nils Gura,
+and Daniel Finchelstein for their support on this project.
+8. ADDITIONAL AUTHORS
+Additional authors: Douglas Stebila (Department of Com-
+binatorics and Optimization, University of Waterloo, email:
+dstebila@uwaterloo.ca).
+9. REFERENCES
+[1] IDC, “IDC envisions a time when majority of
+Internet access will be through wireless devices”, see
+http://www.idc.com:8080/communications/press/pr/
+CM041000pr.stm
+[2] A. Frier, P. Karlton and P. Kocher, “The SSL3.0
+Protocol Version 3.0”, see http://home.netscape.com
+/eng/ssl3/.
+[3] S. Blake-Wilson and T. Dierks, “ECC Cipher Suites
+for TLS”, Internet draft <draft-ietf-tls-ecc-01.txt>,
+work in progress, Mar. 2001.
+
+
+===== PAGE 6 =====
+/0/0/1/1
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+20
+40
+60
+80
+100
+120
+140
+160
+180
+200
+220
+Handshake Crypto Latency (ms)
+Case I Case II Case III
+1024-bit RSA
+163-bit ECC
+/0/0/1/1
+/0/0/0/0
+/0/0/0/0
+/1/1/1/1
+/1/1/1/1
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+0
+20
+40
+60
+80
+100
+120
+140
+160
+180
+Server’s Crypto Rate (conn/s)
+Yopy Ultra-80
+1024-bit RSA
+163-bit ECC
+(a) Without Client Authentication
+/0/0/1/1
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/0/0/1/1
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/0/0
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/1/1
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/0/0
+/0/0
+/0/0
+/0/0
+/1/1
+/1/1
+/1/1
+/1/1
+0
+50
+100
+150
+200
+250
+300
+350
+400
+450
+Handshake Crypto Latency (ms)
+Case I Case II Case III
+1024-bit RSA
+163-bit ECC (ECDH client cert)
+163-bit ECC (ECDSA client cert)
+/0/0/1/1
+/0/0/0/0
+/0/0/0/0
+/0/0/0/0
+/1/1/1/1
+/1/1/1/1
+/1/1/1/1
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/0/0/1/1
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+0
+5
+10
+15
+20
+25
+30
+35
+40
+45
+50
+55
+Server’s Crypto Rate (conn/s)
+Yopy Ultra-80
+1024-bit RSA
+163-bit ECC (ECDH client cert)
+163-bit ECC (ECDSA client cert)
+(b) With Client Authentication
+Figure 3: RSA v/s ECC based handshake on diﬀerent platforms.
+
+
+===== PAGE 7 =====
+/0/0/0/1/1/1
+/0/0/0/0
+/0/0/0/0
+/1/1/1/1
+/1/1/1/1 /0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+50
+100
+150
+200
+250
+300
+Handshake Crypto Latency (ms)
+RSA-1024,ECC-163 RSA-2048,ECC-193
+RSA
+ECDH-ECDSA /0/0/1/1
+/0/0/0/0
+/0/0/0/0
+/0/0/0/0
+/0/0/0/0
+/0/0/0/0
+/1/1/1/1
+/1/1/1/1
+/1/1/1/1
+/1/1/1/1
+/1/1/1/1
+/0/0/0/1/1/10
+20
+40
+60
+80
+100
+120
+140
+160
+180
+Server’s Crypto Rate (conn/s)
+RSA-1024,ECC-163 RSA-2048,ECC-193
+RSA
+ECDH-ECDSA
+(a) Without Client Authentication
+/0/0/0/1/1/1
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/0/0/0/1/1/1
+/0/0/0
+/0/0/0
+/0/0/0
+/1/1/1
+/1/1/1
+/1/1/1
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+0
+200
+400
+600
+800
+1000
+1200
+1400
+1600
+Handshake Crypto Latency (ms)
+RSA-1024,ECC-163 RSA-2048,ECC-193
+RSA
+ECDH-ECDSA (ECDH client cert)
+ECDH-ECDSA (ECDSA client cert)
+/0/0/1/1
+/0/0/0/0
+/0/0/0/0
+/0/0/0/0
+/0/0/0/0
+/0/0/0/0
+/0/0/0/0
+/0/0/0/0
+/0/0/0/0
+/0/0/0/0
+/0/0/0/0
+/0/0/0/0
+/0/0/0/0
+/0/0/0/0
+/0/0/0/0
+/0/0/0/0
+/1/1/1/1
+/1/1/1/1
+/1/1/1/1
+/1/1/1/1
+/1/1/1/1
+/1/1/1/1
+/1/1/1/1
+/1/1/1/1
+/1/1/1/1
+/1/1/1/1
+/1/1/1/1
+/1/1/1/1
+/1/1/1/1
+/1/1/1/1
+/1/1/1/1
+/0/0/0
+/0/0/0
+/0/0/0
+/1/1/1
+/1/1/1
+/1/1/1
+/0/0/1/1
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/0/0/0
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+/1/1/1
+0
+5
+10
+15
+20
+25
+30
+35
+40
+45
+50
+55
+Server’s Crypto Rate (conn/s)
+RSA-1024,ECC-163 RSA-2048,ECC-193
+RSA
+ECDH-ECDSA (ECDH client cert)
+ECDH-ECDSA (ECDSA client cert)
+(b) With Client Authentication
+Figure 4: Impact of using higher key sizes in Case II (Case I and Case III show similar trends).
+
+
+===== PAGE 8 =====
+[4] NIST, “Recommended Elliptic Curves for Federal
+Government Use”, July 1999, see
+http://csrc.nist.gov/csrc/fedstandards.html.
+[5] V. Miller, “Uses of elliptic curves in cryptography”,
+Lecture Notes in Computer Science 218: Advances in
+Cryptology - CRYPTO ’85, pages 417-426,
+Springer-Verlag, Berlin, 1986.
+[6] N. Koblitz, “Elliptic curve cryptosystems”,
+Mathematics of Computation, 48:203-209, 1987.
+[7] ANSI X9.62, “The Elliptic Curve Digital Signature
+Algorithm (ECDSA)”, American Bankers Association,
+1999.
+[8] ANSI X9.63, “Elliptic Curve Key Agreement and Key
+Transport Protocols”, American Bankers Association,
+1999.
+[9] T. Dierks and C. Allen, January 1999. “The TLS
+Protocol - Version 1.0.”, IETF RFC 2246, see
+http://www.ietf.org/rfc/rfc2246.txt
+[10] The OpenSSL Project, see
+http://www.openssl.org/.

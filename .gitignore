@@ -15,8 +15,8 @@ openssl_demo/*.key
 openssl_demo/*.bin
 
 # Source papers and extracted text
-docs/papers/
-docs/context/extracted/
+# docs/papers/
+# docs/context/extracted/
 
 # Local/editor
 .vscode/
