@@ -592,16 +592,16 @@ Module này gồm các chức năng:
 
 Việc sử dụng toy curve giúp người học có thể kiểm tra từng phép toán bằng tay hoặc bằng log chương trình.
 
-Lưu ý: các tham số nhỏ như:
+Lưu ý: toy curve hiện tại dùng các tham số nhỏ:
 
 $$
-p = 223
+p = 17,\quad a = 3,\quad b = 5
 $$
 
-và:
+với điểm sinh:
 
 $$
-n = 21
+G = (1, 3),\quad n = 23
 $$
 
 chỉ dùng cho mô phỏng giáo dục, không có giá trị bảo mật thực tế.

@@ -543,22 +543,22 @@ Benchmark results depend on operation type, key size, curve, implementation, and
 
 ## Toy curve limitations
 
-If the project uses a small toy curve such as:
+The main shared educational toy curve is:
 
 ```text
-p = 223
-a = 0
-b = 7
-G = (47, 71)
-n = 21
+p = 17
+a = 3
+b = 5
+G = (1, 3)
+n = 23
 ```
 
-then clearly state:
+Clearly state:
 
 ```text
 This curve is educational only.
-The order n = 21 is composite.
-Some edge cases appear that do not represent real ECDSA on secp256k1.
+The curve is not secp256k1.
+The curve is not secure.
 The toy curve is useful for visualization, not security.
 ```
 
@@ -738,7 +738,8 @@ Warnings should be visible where relevant:
 
 ```text
 toy curve only
-n = 21 is composite
+not secp256k1
+not secure
 P2PKH-like educational model only
 not real Bitcoin consensus
 not real Bitcoin transaction serialization

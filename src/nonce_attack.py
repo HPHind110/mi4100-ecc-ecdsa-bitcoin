@@ -1,6 +1,6 @@
-from typing import Tuple
-from src.field import mod_inv, mod_div
-from src.ecdsa_toy import ECDSAParams, keygen, sign, hash_message_to_int, Point, Curve
+from src.field import mod_div
+from src.ecdsa_toy import keygen, sign, hash_message_to_int
+from src.demo_params import get_demo_params
 
 def recover_nonce_from_reuse(h1: int, h2: int, s1: int, s2: int, n: int) -> int:
     """
@@ -24,32 +24,21 @@ def demo_reused_nonce_attack():
     Demonstrates the attack on a toy curve.
     """
     # 1. Setup toy params
-    toy_curve = Curve(p=223, a=0, b=7)
-    G = Point(47, 71)
-    n = 21
-    params = ECDSAParams(curve=toy_curve, G=G, n=n)
+    params = get_demo_params()
+    n = params.n
 
-    # 2. Messages with different hashes mod 21
-    msg1 = b"\x02" # h=0
-    msg2 = b"\x03" # h=1
+    # 2. Messages with different hashes mod n
+    msg1 = b"\x02"
+    msg2 = b"\x03"
     
     h1 = hash_message_to_int(msg1, n)
     h2 = hash_message_to_int(msg2, n)
     
-    # 3. Find a working (d, k) pair for the demo
-    # Not all (d, k) work for n=21 due to non-invertible s
-    d_original, Q = None, None
-    k_fixed = 4
-    r1, s1, s2 = None, None, None
-    
-    for d_try in [2, 4, 5, 8, 10, 11]:
-        d_original, Q = keygen(params, d=d_try)
-        try:
-            r1, s1 = sign(params, d_original, msg1, k=k_fixed)
-            r2, s2 = sign(params, d_original, msg2, k=k_fixed)
-            break
-        except ValueError:
-            continue
+    # 3. Use a fixed toy private key and intentionally reuse nonce k.
+    d_original, _ = keygen(params, d=2)
+    k_fixed = 1
+    r1, s1 = sign(params, d_original, msg1, k=k_fixed)
+    _, s2 = sign(params, d_original, msg2, k=k_fixed)
 
     print("--- ECDSA Reused Nonce Attack Demo ---")
     print(f"Original Private Key (d): {d_original}")

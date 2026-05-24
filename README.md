@@ -1,393 +1,137 @@
-# MI4100: ECC/ECDSA và ứng dụng chữ ký số trong Bitcoin
+# MI4100 ECC/ECDSA Bitcoin Project
 
-Dự án này được thực hiện trong khuôn khổ môn học **Mật mã và độ phức tạp thuật toán (MI4100)**.
+## 1. Project identity
+Dự án môn học **MI4100: Mật mã và độ phức tạp thuật toán**.
 
-Mục tiêu của dự án là mô phỏng và giải thích cơ chế hoạt động của **mật mã đường cong Elliptic** (*Elliptic Curve Cryptography* — ECC), thuật toán chữ ký số **ECDSA** (*Elliptic Curve Digital Signature Algorithm*), và lý do ECDSA được sử dụng trong Bitcoin để xác thực giao dịch.
+Chủ đề: **Mật mã đường cong elliptic (ECC) và ứng dụng chữ ký số ECDSA trong Bitcoin**.
 
-Dự án bao gồm hai phần chính:
+Phạm vi:
+- Dự án giáo dục, mô phỏng bằng toy parameters và demo OpenSSL.
+- Không phải ví Bitcoin thật.
+- Không phải phần mềm wallet, mining, mạng ngang hàng, hay broadcast transaction.
 
-- Mô phỏng ECC/ECDSA bằng Python trên một đường cong nhỏ phục vụ mục đích học tập.
-- Thực nghiệm với OpenSSL để ký, xác minh và benchmark hiệu năng giữa RSA và ECDSA.
+## 2. Core thesis
+Luận điểm cốt lõi:
 
----
+**Bitcoin không mã hóa giao dịch bằng ECC/ECDSA. Bitcoin dùng chữ ký số để xác thực quyền chi tiêu (spending authority).**
 
-## 1. Ý tưởng chính
-
-Bitcoin không cần mã hóa nội dung giao dịch, vì giao dịch trên blockchain là công khai. Điều Bitcoin cần là một cơ chế để chứng minh rằng người gửi thực sự sở hữu khóa bí mật tương ứng với khóa công khai.
-
-ECDSA giải quyết bài toán này bằng chữ ký số.
-
-Người dùng ký giao dịch bằng khóa bí mật. Các node trong mạng lưới xác minh chữ ký bằng khóa công khai. Nếu chữ ký hợp lệ, giao dịch được xem là do đúng chủ sở hữu tạo ra.
-
-Về mặt toán học, ECC dựa trên phép nhân vô hướng trên đường cong Elliptic:
-
-$$
-Q = dG
-$$
-
-Trong đó:
-
-- $d$ là khóa bí mật.
-- $G$ là điểm sinh trên đường cong.
-- $Q$ là khóa công khai.
-
-Việc tính $Q$ từ $d$ và $G$ là dễ. Nhưng việc tìm lại $d$ khi chỉ biết $Q$ và $G$ là rất khó nếu tham số đủ lớn. Đây là nền tảng bảo mật của ECC.
-
----
-
-## 2. Luận điểm chính của dự án
-
-Dự án tập trung vào bốn luận điểm chính:
-
-### 2.1. ECC hiệu quả hơn RSA về kích thước khóa
-
-ECC có thể đạt mức bảo mật cao với kích thước khóa nhỏ hơn nhiều so với RSA. Điều này giúp giảm chi phí lưu trữ, truyền tải và xử lý dữ liệu.
-
-Trong các hệ thống như blockchain, nơi chữ ký được lưu trữ lâu dài và được xác minh bởi nhiều node, kích thước khóa và chữ ký nhỏ là một lợi thế lớn.
-
-### 2.2. ECDSA phù hợp với bài toán xác thực giao dịch Bitcoin
-
-Bitcoin sử dụng chữ ký số để xác minh quyền chi tiêu. Người dùng không cần tiết lộ khóa bí mật, nhưng vẫn có thể chứng minh rằng họ là chủ sở hữu hợp lệ của khóa công khai.
-
-### 2.3. Nonce là điểm cực kỳ nhạy cảm trong ECDSA
-
-Khi ký ECDSA, mỗi chữ ký cần một nonce $k$.
-
-Nếu cùng một nonce $k$ bị tái sử dụng cho hai thông điệp khác nhau, khóa bí mật có thể bị khôi phục.
-
-Từ công thức ký:
-
-$$
-s = k^{-1}(h + dr) \pmod n
-$$
-
-nếu hai chữ ký dùng cùng nonce, ta có thể suy ra:
-
-$$
-k = (h_1 - h_2)(s_1 - s_2)^{-1} \pmod n
-$$
-
-Sau đó khóa bí mật được tính bằng:
-
-$$
-d = (s_1k - h_1)r^{-1} \pmod n
-$$
-
-Đây là minh chứng cho việc: thuật toán mạnh chưa đủ, triển khai sai vẫn có thể làm toàn bộ hệ thống mất an toàn.
-
-### 2.4. Shamir's trick giúp tối ưu xác minh chữ ký
-
-Trong bước xác minh ECDSA, ta cần tính:
-
-$$
-X = u_1G + u_2Q
-$$
-
-Cách thông thường là tính riêng $u_1G$ và $u_2Q$, sau đó cộng hai kết quả.
-
-Shamir's trick tối ưu bước này bằng cách xử lý hai phép nhân vô hướng đồng thời, từ đó giảm số phép toán trên đường cong Elliptic.
-
----
-
-## 3. Cấu trúc thư mục
+Chuỗi ý tưởng:
 
 ```text
-CAC_Project/
-├── src/
-│   ├── field.py
-│   ├── ecc.py
-│   ├── ecdsa_toy.py
-│   ├── nonce_attack.py
-│   └── shamir.py
-│
-├── openssl_demo/
-│   ├── gen_keys.ps1
-│   ├── sign_verify.ps1
-│   └── benchmark.ps1
-│
-├── results/
-│
-├── tests/
-│
-├── requirements.txt
-└── README.md
+Bitcoin ownership problem
+-> ownership as spending condition in UTXO
+-> ECC (Q = dG)
+-> ECDLP hardness
+-> ECDSA sign/verify
+-> transaction authentication
 ```
 
-Ý nghĩa các thư mục và file chính:
+Diễn đạt chính xác:
+- Trong Bitcoin thật, ownership nghĩa là **thỏa điều kiện chi tiêu** của UTXO (script/spending condition).
+- Trong demo **P2PKH-like educational model**, ownership được đơn giản hóa thành:
+  - `hash(pubkey)` khớp locking condition
+  - chữ ký hợp lệ trên dữ liệu transaction demo
 
-| Thành phần | Vai trò |
-|---|---|
-| `src/field.py` | Cài đặt số học trên trường hữu hạn $\mathbb{F}_p$ |
-| `src/ecc.py` | Cài đặt điểm, đường cong Elliptic, cộng điểm và nhân vô hướng |
-| `src/ecdsa_toy.py` | Mô phỏng sinh khóa, ký và xác minh ECDSA |
-| `src/nonce_attack.py` | Demo tấn công khi tái sử dụng nonce |
-| `src/shamir.py` | So sánh xác minh naive với Shamir's trick |
-| `openssl_demo/` | Script PowerShell để chạy OpenSSL |
-| `tests/` | Unit test bằng `pytest` |
-| `results/` | Lưu kết quả benchmark |
+## 3. Question-driven storyline
+| Question | Code demo | What it proves |
+|---|---|---|
+| Q0. Bitcoin cần giải bài toán gì? | Trang mở đầu trong `app.py` | Bài toán gốc là xác thực quyền chi tiêu trong môi trường không tin cậy |
+| Q1. Ownership trong Bitcoin biểu diễn thế nào? | `src/bitcoin_tx.py` + trang Mini Bitcoin Transaction | Ownership trong mô hình UTXO là khả năng thỏa spending condition |
+| Q2. Private key sinh public key thế nào? | `src/ecc.py`, `src/demo_params.py` | Quan hệ `Q = dG` trên nhóm điểm elliptic |
+| Q3. Vì sao biết Q không suy ra d? | `src/ecdlp_attacks.py` (brute force/BSGS/Pollard rho experimental trên toy curve) | ECDLP có thể minh họa trên toy curve, nhưng không khả thi cho secp256k1 thật |
+| Q4. ECDSA ký và xác minh thế nào? | `src/ecdsa_toy.py` | Private key ký, public key xác minh; sửa message thì verify fail |
+| Q5. ECDSA đi vào transaction ra sao? | `src/bitcoin_tx.py`, `tests/test_bitcoin_tx.py` | Chữ ký gắn với UTXO cụ thể; tamper/wrong key/double spend/missing UTXO bị từ chối |
+| Q6. ECDSA có luôn an toàn không? | `src/nonce_attack.py` | Reused nonce làm lộ private key là lỗi triển khai |
+| Q6.5. Phòng thủ nonce ra sao? | `docs/rfc6979_nonce_defense.md` | Kỷ luật nonce/RNG/library quan trọng ngang toán học |
+| Q7. Tối ưu verify thế nào? | `src/shamir.py`, `tests/test_shamir.py` | Shamir's trick tối ưu biểu thức `u1G + u2Q` |
+| Q8. Liên hệ công cụ thật? | `openssl_demo/gen_keys.ps1`, `openssl_demo/sign_verify.ps1`, `openssl_demo/benchmark.ps1` | OpenSSL secp256k1 là tooling thật cho message/file signing, không phải full Bitcoin transaction signing |
 
----
-
-## 4. Yêu cầu môi trường
-
-Dự án cần các công cụ sau:
-
+## 4. How to install
+Yêu cầu:
 - Python 3.10+
-- `pip`
-- `pytest`
 - OpenSSL
-- PowerShell trên Windows
+- PowerShell (nếu chạy script `.ps1`)
 
-Kiểm tra Python:
-
-```powershell
-python --version
-```
-
-Kiểm tra OpenSSL:
-
-```powershell
-openssl version
-```
-
----
-
-## 5. Cài đặt
-
-### 5.1. Tạo môi trường ảo
+Cài đặt:
 
 ```powershell
 python -m venv .venv
-```
-
-Kích hoạt môi trường ảo:
-
-```powershell
 .\.venv\Scripts\Activate.ps1
-```
-
-### 5.2. Cài thư viện phụ thuộc
-
-```powershell
 pip install -r requirements.txt
 ```
 
-### 5.3. Cấu hình `PYTHONPATH`
-
-Để Python tìm thấy module trong thư mục `src/`, chạy:
-
-```powershell
-$env:PYTHONPATH = "."
-```
-
----
-
-## 6. Chạy kiểm thử
-
-Dự án sử dụng `pytest` để kiểm tra tính đúng đắn của các module.
-
-Chạy toàn bộ test:
-
-```powershell
-pytest tests/
-```
-
-Nếu muốn chạy ngắn gọn hơn:
-
+## 5. How to run tests
 ```powershell
 pytest -q
 ```
 
-Các test kiểm tra:
-
-- Số học modulo.
-- Phép cộng điểm trên đường cong Elliptic.
-- Phép nhân vô hướng.
-- Ký và xác minh ECDSA.
-- Tấn công reused nonce.
-- Shamir's trick.
-
----
-
-## 7. Hướng dẫn chạy demo
-
-### 7.1. Demo ECDSA trên toy curve
-
-Chạy lệnh sau để kiểm tra luồng sinh khóa, ký và xác minh:
+Nếu `pytest` chưa có trong PATH:
 
 ```powershell
-python -c "from src.ecdsa_toy import *; from src.ecc import *; toy_curve = Curve(p=223, a=0, b=7); G = Point(47, 71); params = ECDSAParams(toy_curve, G, 21); d, Q = keygen(params); msg = b'hello'; r, s = sign(params, d, msg); print(f'Private key: {d}'); print(f'Public key: {Q}'); print(f'Signature: {(r, s)}'); print(f'Verified: {verify(params, Q, msg, (r, s))}')"
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Kết quả mong đợi:
-
-```text
-Verified: True
-```
-
-Điều này cho thấy chữ ký được tạo ra hợp lệ và có thể được xác minh bằng khóa công khai.
-
----
-
-### 7.2. Demo tấn công tái sử dụng nonce
-
-Chạy:
-
-```powershell
-python src/nonce_attack.py
-```
-
----
-
-### 7.3. Demo Shamir's trick
-
-Chạy:
-
-```powershell
-python src/shamir.py
-```
-
----
-
-### 7.4. Demo OpenSSL với secp256k1
-
-Chuyển vào thư mục `openssl_demo`:
-
-```powershell
-cd openssl_demo
-```
-
-Sinh khóa:
-
-```powershell
-.\gen_keys.ps1
-```
-
-Ký và xác minh chữ ký:
-
-```powershell
-.\sign_verify.ps1
-```
-
-Script này minh họa quy trình:
-
-1. Sinh khóa ECC.
-2. Ký một file văn bản.
-3. Xác minh chữ ký.
-4. Sửa nội dung file.
-5. Kiểm tra xác minh thất bại sau khi nội dung bị thay đổi.
-
----
-
-### 7.5. Benchmark RSA và ECDSA bằng OpenSSL
-
-Từ thư mục `openssl_demo`, chạy:
-
-```powershell
-.\benchmark.ps1
-```
-
-Kết quả benchmark sẽ được lưu tại:
-
-```text
-results/openssl_benchmark.txt
-```
-
----
-
-### 7.6. Chạy Web Visualization (Streamlit)
-
-Dự án cung cấp một giao diện web trực quan (Streamlit) để minh họa các kết quả toán học và mô phỏng tấn công. Để khởi chạy:
-
+## 6. How to run Streamlit
 ```powershell
 streamlit run app.py
 ```
 
-Ứng dụng sẽ tự động mở trên trình duyệt (thường ở địa chỉ `http://localhost:8501`), bao gồm các phần:
-- ECC Toy Curve
-- ECDSA Sign/Verify
-- Tấn công Reused Nonce
-- Tối ưu hóa Shamir's Trick
-- Tóm tắt kết quả OpenSSL Benchmark
+Nếu `streamlit` chưa có trong PATH:
 
----
+```powershell
+python -m streamlit run app.py
+```
 
-## 8. Kết quả chính
+## 7. How to run OpenSSL demo
+```powershell
+openssl version
+.\openssl_demo\gen_keys.ps1
+.\openssl_demo\sign_verify.ps1
+.\openssl_demo\benchmark.ps1
+```
 
-Dự án đạt được các kết quả sau:
+Lưu ý:
+- `sign_verify.ps1` minh họa ký/xác minh message hoặc file.
+- Không phải quy trình full Bitcoin transaction signing.
 
-- Cài đặt được số học trường hữu hạn $\mathbb{F}_p$.
-- Cài đặt được phép cộng điểm và nhân vô hướng trên đường cong Elliptic.
-- Mô phỏng được quá trình sinh khóa, ký và xác minh ECDSA.
-- Demo được lỗi reused nonce làm lộ khóa bí mật.
-- Cài đặt được Shamir's trick để tối ưu xác minh.
-- Thực nghiệm được ký và xác minh bằng OpenSSL.
-- Benchmark được hiệu năng giữa RSA và ECDSA.
+## 8. Key demos
+- **Toy ECC**: `src/ecc.py` + `src/demo_params.py`.
+- **ECDLP toy attacks (if implemented)**: `src/ecdlp_attacks.py`.
+  - brute force
+  - baby-step giant-step
+  - Pollard rho (experimental, toy-only, có thể fail graceful)
+- **ECDSA sign/verify**: `src/ecdsa_toy.py`.
+- **Mini Bitcoin transaction signing** (P2PKH-like educational model): `src/bitcoin_tx.py`.
+- **Reused nonce attack**: `src/nonce_attack.py`.
+- **Nonce defense notes**: `docs/rfc6979_nonce_defense.md`.
+- **Shamir's trick**: `src/shamir.py`.
+- **OpenSSL secp256k1 demo**: thư mục `openssl_demo/`.
 
----
+Về benchmark:
+- Kết quả benchmark phụ thuộc operation, key size, curve, implementation và máy chạy.
+- `openssl speed ecdsap256` là benchmark cho **NIST P-256 / prime256v1**, không phải `secp256k1`.
+- Nếu `openssl speed` trên máy không liệt kê `secp256k1` trực tiếp thì không được diễn giải kết quả đó như benchmark `secp256k1`.
+- Demo `secp256k1` trong `gen_keys.ps1` và `sign_verify.ps1` được giữ tách biệt với benchmark `openssl speed`.
+- Không kết luận tuyệt đối kiểu "ECDSA luôn nhanh hơn RSA trong mọi tình huống".
+- RSA verification có thể rất nhanh tùy exponent và implementation.
 
-## 9. Giới hạn của dự án
+## 9. Limitations
+- Toy curve trong repo là mô hình học tập, **không an toàn** để dùng production.
+- Tham số toy legacy `n = 21` là composite (điểm hạn chế thường gặp trong các demo cũ); repo hiện đã dùng shared demo params mới để học tập nhất quán.
+- Mini transaction model là **P2PKH-like educational model**, không phải full Bitcoin consensus/script/sighash.
+- OpenSSL message/file signing không phải full Bitcoin transaction signing.
+- Reused nonce attack minh họa **implementation failure**, không chứng minh ECDSA đúng chuẩn bị "phá".
+- ECDLP attacks trong repo là demo toy, không dùng để giảm bảo mật Bitcoin thật.
 
-Dự án có một số giới hạn quan trọng:
-
-- Toy curve chỉ dùng để học tập, không có giá trị bảo mật thực tế.
-- Mã Python trong dự án ưu tiên tính dễ hiểu, không tối ưu hiệu năng.
-- Không dùng mã nguồn này trong hệ thống production.
-- Chưa xử lý side-channel attack, timing attack hoặc fault attack.
-- Chưa triển khai đầy đủ quy trình tạo giao dịch Bitcoin thật.
-- Không tương tác với blockchain thật.
-- Không tạo, quét hoặc khôi phục khóa Bitcoin thật.
-
----
-
-## 10. Cảnh báo bảo mật
-
-Dự án này chỉ phục vụ mục đích học tập.
-
-Không sử dụng mã nguồn trong dự án để:
-
-- Quản lý tài sản thật.
-- Tạo ví Bitcoin thật.
-- Ký giao dịch thật.
-- Quét khóa riêng tư.
-- Thử tấn công hệ thống hoặc tài sản của người khác.
-
-Các cuộc tấn công trong dự án chỉ được thực hiện trên dữ liệu giả lập hoặc khóa tự tạo cục bộ.
-
----
-
-## 11. Tài liệu tham khảo
-
-[1] Neal Koblitz, “Elliptic Curve Cryptosystems”, *Mathematics of Computation*, 1987.
-
-[2] Victor S. Miller, “Use of Elliptic Curves in Cryptography”, *CRYPTO*, 1985.
-
-[3] Standards for Efficient Cryptography Group, “SEC 2: Recommended Elliptic Curve Domain Parameters”, Version 2.0, 2010.  
-https://www.secg.org/sec2-v2.pdf
-
-[4] Thomas Pornin, “RFC 6979: Deterministic Usage of the Digital Signature Algorithm (DSA) and Elliptic Curve Digital Signature Algorithm (ECDSA)”, IETF, 2013.  
-https://datatracker.ietf.org/doc/html/rfc6979
-
-[5] Bitcoin Developer Documentation, “Transactions”.  
-https://developer.bitcoin.org/devguide/transactions.html
-
-[6] OpenSSL Documentation, “ECDSA_sign and ECDSA_verify”.  
-https://docs.openssl.org/3.4/man3/ECDSA_sign/
-
-[7] GitHub Docs, “Writing mathematical expressions”.  
-https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/writing-mathematical-expressions
-
----
-
-## 12. Ghi chú
-
-Dự án được xây dựng với mục tiêu chính là giúp người học hiểu được:
-
-- Vì sao ECC quan trọng.
-- ECDSA hoạt động như thế nào.
-- Bitcoin dùng chữ ký số để xác thực giao dịch ra sao.
-- Vì sao triển khai mật mã cần cực kỳ cẩn thận.
-
-Thông điệp quan trọng nhất của dự án:
-
-> Thuật toán mật mã mạnh không đảm bảo hệ thống an toàn nếu quá trình triển khai sai.
+## 10. References
+1. Satoshi Nakamoto, *Bitcoin: A Peer-to-Peer Electronic Cash System*.  
+   https://bitcoin.org/bitcoin.pdf
+2. SECG, *SEC 2: Recommended Elliptic Curve Domain Parameters*.  
+   https://www.secg.org/sec2-v2.pdf
+3. Thomas Pornin, *RFC 6979: Deterministic Usage of DSA and ECDSA*.  
+   https://datatracker.ietf.org/doc/html/rfc6979
+4. Bitcoin Developer Documentation, *Transactions*.  
+   https://developer.bitcoin.org/devguide/transactions.html
+5. OpenSSL Documentation, ECDSA command/API references.  
+   https://docs.openssl.org/
+6. Joachim Breitner, Nadia Heninger, *Biased Nonce Sense: Lattice Attacks against Weak ECDSA Signatures in Cryptocurrencies*.

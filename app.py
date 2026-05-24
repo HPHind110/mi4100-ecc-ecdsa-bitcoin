@@ -1,5 +1,6 @@
 import sys
 import os
+import copy
 import shutil
 import subprocess
 import tempfile
@@ -12,30 +13,44 @@ import streamlit as st
 import plotly.express as px
 import pandas as pd
 
-from src.ecc import Curve, Point
-from src.ecdsa_toy import ECDSAParams, sign, verify, hash_message_to_int
+from src.ecdsa_toy import sign, verify, hash_message_to_int
 from src.shamir import naive_mul_add, shamir_mul
+from src.demo_params import DEMO_A, DEMO_B, DEMO_P, get_demo_params
+from src.bitcoin_tx import (
+    OutPoint,
+    Transaction,
+    TxInput,
+    TxOutput,
+    UTXOSet,
+    pubkey_hash_demo,
+    serialize_unsigned_tx,
+    sign_transaction_input,
+    txid_demo,
+    verify_transaction_input,
+)
 
 # ============= CẤU HÌNH TRANG =============
 st.set_page_config(page_title="🔐 ECC/ECDSA - Mô phỏng Tương tác", layout="wide")
 
 # ============= GLOBAL PARAMETERS =============
-# Đường cong Toy: y^2 = x^3 + 7 mod 223
-# Được chọn để chạy nhanh nhưng đủ để minh họa các khái niệm
-TOY_CURVE = Curve(p=223, a=0, b=7)
-GENERATOR_POINT = Point(47, 71)
-ORDER_N = 21
-# TODO: Có thể thay toy curve bằng một subgroup có prime order để demo ECDSA ít edge case hơn.
-# Nhưng khi đổi n phải chọn lại G sao cho order(G) = n.
-ECDSA_PARAMS = ECDSAParams(curve=TOY_CURVE, G=GENERATOR_POINT, n=ORDER_N)
+# Đường cong toy prime-order, dùng chung cho toàn bộ demo giáo dục.
+ECDSA_PARAMS = get_demo_params()
+TOY_CURVE = ECDSA_PARAMS.curve
+GENERATOR_POINT = ECDSA_PARAMS.G
+ORDER_N = ECDSA_PARAMS.n
 
 # Danh sách demos
 DEMOS = [
-    {"id": 0, "title": "1️⃣ ECC Toy Curve", "desc": "Làm quen với Elliptic Curve"},
-    {"id": 1, "title": "2️⃣ ECDSA Sign/Verify", "desc": "Ký và xác minh thông điệp"},
-    {"id": 2, "title": "3️⃣ Reused Nonce Attack", "desc": "Tấn công tái sử dụng nonce"},
-    {"id": 3, "title": "4️⃣ Shamir's Trick", "desc": "Tối ưu hóa phép toán"},
-    {"id": 4, "title": "5️⃣ OpenSSL Demo", "desc": "Thực nghiệm secp256k1"},
+    {"id": 0, "title": "0. Big Picture", "desc": "Bài toán sở hữu trong Bitcoin"},
+    {"id": 1, "title": "1. Ownership in Bitcoin", "desc": "UTXO spending authority"},
+    {"id": 2, "title": "2. ECC: Q = dG", "desc": "Private key sinh public key"},
+    {"id": 3, "title": "3. ECDLP: Why Q does not reveal d", "desc": "Độ khó đảo ngược"},
+    {"id": 4, "title": "4. ECDSA Sign/Verify", "desc": "Ký và xác minh thông điệp"},
+    {"id": 5, "title": "5. Mini Bitcoin Transaction Signing", "desc": "Toy UTXO + chữ ký ECDSA"},
+    {"id": 6, "title": "6. ECDSA Reused Nonce Attack", "desc": "Tấn công tái sử dụng nonce"},
+    {"id": 7, "title": "7. Nonce Defense Notes", "desc": "Phòng thủ khi triển khai ECDSA"},
+    {"id": 8, "title": "8. Shamir's Trick", "desc": "Tối ưu hóa verification"},
+    {"id": 9, "title": "9. OpenSSL secp256k1 Demo", "desc": "Công cụ mật mã thật"},
 ]
 
 # ============= UTILITY FUNCTIONS =============
@@ -94,6 +109,13 @@ def render_learning_summary(title, points):
             st.markdown(f"- {point}")
 
 
+def render_page_intro(question: str, idea: str, demo: str) -> None:
+    """Hiển thị ba mục bắt buộc ở đầu mỗi trang theo storyline Q0-Q8."""
+    st.markdown(f"**Câu hỏi**\n\n{question}")
+    st.markdown(f"**Ý tưởng**\n\n{idea}")
+    st.markdown(f"**Demo chứng minh điều gì?**\n\n{demo}")
+
+
 def safe_mod_inverse(a, n):
     """Trả về nghịch đảo modulo nếu tồn tại, ngược lại trả về None."""
     a = a % n
@@ -114,9 +136,7 @@ def validate_nonce(k, n):
     if gcd(k, n) != 1:
         return False, (
             "Nonce k không hợp lệ vì không tồn tại nghịch đảo modulo n. "
-            "Trong ECDSA, k phải khả nghịch modulo n. Với toy demo n = 21 là hợp số "
-            "nên nhiều k không có nghịch đảo; đây là hạn chế của mô hình minh họa, "
-            "không phải lỗi của ECDSA thật."
+            "Trong ECDSA, k phải khả nghịch modulo n."
         )
     return True, ""
 
@@ -134,7 +154,7 @@ def can_run_reused_nonce_attack(msg1, msg2, h1, h2, r1, s1, r2, s2, n):
         return False, (
             "Hai thông điệp tuy khác nhau nhưng lại có cùng hash modulo n trong toy demo này. "
             "Vì h1 - h2 = 0, công thức khôi phục nonce không cung cấp đủ thông tin để tìm lại k. "
-            "Đây là do n = 21 quá nhỏ; hãy thử đổi nội dung một trong hai tin nhắn."
+            "Đây là do toy curve rất nhỏ; hãy thử đổi nội dung một trong hai tin nhắn."
         )
     if r1 != r2:
         return False, (
@@ -150,13 +170,12 @@ def can_run_reused_nonce_attack(msg1, msg2, h1, h2, r1, s1, r2, s2, n):
     if gcd(s_diff, n) != 1:
         return False, (
             f"Không thể khôi phục nonce vì s1 - s2 = {s_diff} modulo {n} không có nghịch đảo. "
-            "Đây là edge case của toy curve với n = 21 là hợp số. Trong secp256k1 thật, n là "
-            "order nguyên tố rất lớn nên các mẫu hợp lệ không gặp hạn chế này."
+            "Đây là edge case của toy curve rất nhỏ, không phải bài học chính của ECDSA thật."
         )
     if gcd(r1 % n, n) != 1:
         return False, (
             f"Không thể khôi phục private key vì r = {r1 % n} không có nghịch đảo modulo {n}. "
-            "Đây là hạn chế của toy curve n = 21, không phải lỗi của ECDSA thật."
+            "Đây là hạn chế của toy curve rất nhỏ, không phải lỗi của ECDSA thật."
         )
     return True, ""
 
@@ -267,13 +286,95 @@ def run_openssl_secp256k1_experiment(message: str, iterations: int):
         }
 
 
-# ============= DEMO 1: ECC TOY CURVE =============
+# ============= PAGE 0: BIG PICTURE =============
+def demo_big_picture():
+    """Trang tổng quan bắt đầu từ bài toán sở hữu, không bắt đầu từ công thức."""
+    st.title("0. Big Picture")
+    render_page_intro(
+        "Bitcoin cần giải bài toán gì trong môi trường không có ngân hàng trung gian?",
+        "Điều cần chứng minh không phải là danh tính tài khoản, mà là quyền chi tiêu một tài sản số cụ thể.",
+        "Trang này đặt toàn bộ mạch: Bitcoin ownership problem -> UTXO spending authority -> ECC -> ECDLP -> ECDSA -> transaction authentication.",
+    )
+
+    st.info(
+        "Luận điểm trung tâm: Bitcoin không dùng ECC/ECDSA để mã hóa transaction. "
+        "Bitcoin dùng ECDSA để xác thực spending authority."
+    )
+
+    storyline = [
+        {"Step": "0", "Question": "Bitcoin cần giải bài toán gì?", "Answer": "Proof of spending authority"},
+        {"Step": "1", "Question": "Ownership được biểu diễn thế nào?", "Answer": "Khả năng thỏa spending condition của UTXO"},
+        {"Step": "2", "Question": "Private key tạo public key thế nào?", "Answer": "Q = dG trên elliptic curve group"},
+        {"Step": "3", "Question": "Vì sao Q không lộ d?", "Answer": "ECDLP khó trên tham số thật như secp256k1"},
+        {"Step": "4", "Question": "ECDSA hoạt động thế nào?", "Answer": "Private key ký, public key xác minh"},
+        {"Step": "5", "Question": "ECDSA vào transaction thế nào?", "Answer": "Signature mở khóa UTXO trong toy P2PKH-like model"},
+        {"Step": "6", "Question": "Triển khai sai thì sao?", "Answer": "Nonce reuse có thể làm lộ private key"},
+        {"Step": "7", "Question": "Phòng thủ thế nào?", "Answer": "Nonce discipline, RFC6979-style, constant-time libraries"},
+        {"Step": "8", "Question": "Có thể tối ưu verification không?", "Answer": "Shamir's trick cho u1G + u2Q"},
+        {"Step": "9", "Question": "Toy math liên hệ công cụ thật thế nào?", "Answer": "OpenSSL secp256k1 message/file signing"},
+    ]
+    st.dataframe(pd.DataFrame(storyline), use_container_width=True)
+
+    render_learning_summary("Big Picture", [
+        "Bắt đầu từ bài toán sở hữu trong môi trường không tin cậy",
+        "ECC/ECDSA là cơ chế chứng minh quyền chi tiêu, không phải cơ chế mã hóa transaction",
+        "Mini transaction demo là lớp nối giữa chữ ký thông điệp và Bitcoin-like UTXO flow",
+    ])
+
+
+# ============= PAGE 1: OWNERSHIP IN BITCOIN =============
+def demo_ownership_in_bitcoin():
+    """Giải thích ownership theo UTXO spending condition."""
+    st.title("1. Ownership in Bitcoin")
+    render_page_intro(
+        "Quyền sở hữu trong Bitcoin được biểu diễn thế nào?",
+        "Ownership không phải username/password hay một balance field. Trong UTXO model, ownership là khả năng thỏa spending condition của một UTXO.",
+        "Trang này làm rõ P2PKH-like educational model: locking condition là public key hash, unlocking data là signature + public key.",
+    )
+
+    st.warning(
+        "P2PKH-like educational model only. Trong real Bitcoin, spending authority tổng quát hơn: "
+        "nó nghĩa là thỏa script/spending condition tương ứng, không phải lúc nào cũng chỉ một chữ ký ECDSA."
+    )
+
+    model_rows = [
+        {"Layer": "UTXO", "Meaning": "Một output chưa chi tiêu, có điều kiện khóa riêng"},
+        {"Layer": "Locking condition", "Meaning": "Trong demo: public key hash của chủ sở hữu"},
+        {"Layer": "Unlocking data", "Meaning": "Trong demo: signature + public key"},
+        {"Layer": "Verification", "Meaning": "hash(public key) khớp lock và ECDSA signature hợp lệ"},
+        {"Layer": "Accepted spend", "Meaning": "UTXO tồn tại, chưa spent, và spending condition được thỏa"},
+    ]
+    st.dataframe(pd.DataFrame(model_rows), use_container_width=True)
+
+    st.info(
+        "Ở bước này có thể xem ECDSA như black box: valid signature -> spending authority demonstrated; "
+        "invalid signature -> spending authority not demonstrated."
+    )
+
+    render_learning_summary("Ownership in Bitcoin", [
+        "Bitcoin-like ownership gắn với UTXO cụ thể",
+        "Toy P2PKH-like model dùng public key hash làm điều kiện khóa",
+        "Signature không chứng minh quyền chung chung; nó mở khóa một điều kiện chi tiêu cụ thể",
+    ])
+
+
+# ============= PAGE 2: ECC TOY CURVE =============
 def demo_ecc_toy_curve():
     """Minh họa các điểm trên đường cong Elliptic."""
-    st.title("1️⃣ Đường cong Elliptic (ECC)")
+    st.title("2. ECC: Q = dG")
+    render_page_intro(
+        "Private key sinh ra public key như thế nào?",
+        "ECC cung cấp phép nhân vô hướng trên nhóm điểm elliptic curve: Q = dG.",
+        "Demo cho thấy chọn private key toy d, tính public key Q, và trực quan hóa các điểm trên toy curve.",
+    )
+    st.warning(
+        f"toy curve only: p = {DEMO_P}, a = {DEMO_A}, b = {DEMO_B}, "
+        f"G = ({GENERATOR_POINT.x}, {GENERATOR_POINT.y}), n = {ORDER_N}. "
+        "Đây không phải secp256k1 và không an toàn."
+    )
     
     with st.columns(3)[1]:
-        st.latex(r"y^2 \equiv x^3 + 7 \pmod{223}")
+        st.latex(rf"y^2 \equiv x^3 + {DEMO_A}x + {DEMO_B} \pmod{{{DEMO_P}}}")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -328,7 +429,7 @@ def demo_ecc_toy_curve():
                          'Public Key (Q)': '#EF553B',
                          'Điểm trên Curve': '#D3D3D3'
                      },
-                     title="Các điểm trên trường hữu hạn F₂₂₃",
+                     title=f"Các điểm trên trường hữu hạn F_{DEMO_P}",
                      labels={'x': 'X coordinate', 'y': 'Y coordinate'})
     fig.update_layout(showlegend=True, hovermode='closest')
     st.plotly_chart(fig, use_container_width=True)
@@ -340,10 +441,65 @@ def demo_ecc_toy_curve():
     ])
 
 
-# ============= DEMO 2: ECDSA SIGN/VERIFY =============
+# ============= PAGE 3: ECDLP =============
+def demo_ecdlp_explanation():
+    """Minh họa ECDLP trên toy curve và cảnh báo không brute-force secp256k1."""
+    st.title("3. ECDLP: Why Q does not reveal d")
+    render_page_intro(
+        "Vì sao biết public key Q mà không suy ra private key d?",
+        "Bài toán ECDLP: biết G và Q = dG, tìm d. Toy curve nhỏ có thể brute force, còn secp256k1 thật thì không khả thi với generic classical attacks đã biết.",
+        "Demo brute force trên toy curve để thấy ý tưởng đảo ngược là thử từng k; BSGS giảm độ phức tạp xuống O(sqrt(n)); Pollard rho chỉ là experimental toy demo.",
+    )
+    st.warning(
+        f"toy curve only. Demo này dùng curve rất nhỏ với n = {ORDER_N} để học ECDLP, "
+        "không brute force secp256k1 và không liên quan tới real Bitcoin keys."
+    )
+    st.info(
+        "Pollard rho trong repo được đánh dấu experimental: chỉ dùng cho toy curve, có thể thất bại do va chạm suy biến/giới hạn bước, "
+        "và không có nghĩa là làm giảm bảo mật Bitcoin."
+    )
+
+    d_secret = st.slider("Chọn toy private key d", min_value=1, max_value=ORDER_N - 1, value=5)
+    Q = ECDSA_PARAMS.curve.scalar_mul(d_secret, ECDSA_PARAMS.G)
+    st.info(f"Public key Q = dG = {d_secret}G = Point(x={Q.x}, y={Q.y})")
+
+    attempts = []
+    recovered = None
+    for k in range(1, ORDER_N + 1):
+        candidate = ECDSA_PARAMS.curve.scalar_mul(k, ECDSA_PARAMS.G)
+        attempts.append({
+            "k": k,
+            "kG": "Infinity" if candidate.is_infinity else f"({candidate.x}, {candidate.y})",
+            "matches Q": candidate == Q,
+        })
+        if candidate == Q and recovered is None:
+            recovered = k
+
+    st.dataframe(pd.DataFrame(attempts), use_container_width=True)
+    st.success(f"Toy brute force recovered d = {recovered}.")
+    st.caption(
+        "Bài học: brute force O(n) chỉ chạy được vì toy n rất nhỏ. Với secp256k1, n có kích thước khoảng 256 bit."
+    )
+
+    render_learning_summary("ECDLP", [
+        "ECDLP hỏi: given G and Q = dG, find d",
+        "Toy curve nhỏ giúp quan sát brute force",
+        "Real secp256k1 không bị brute force bởi demo code",
+    ])
+
+
+# ============= PAGE 4: ECDSA SIGN/VERIFY =============
 def demo_ecdsa_sign_verify():
     """Minh họa quy trình ký và xác minh."""
-    st.title("2️⃣ Chữ ký số ECDSA (Sign/Verify)")
+    st.title("4. ECDSA Sign/Verify")
+    render_page_intro(
+        "ECDSA ký và xác minh như thế nào?",
+        "Private key tạo signature. Public key xác minh signature. Verifier không cần private key.",
+        "Demo ký một message bằng toy ECDSA, verify thành công, rồi sửa message để thấy signature bị từ chối.",
+    )
+    st.warning(
+        f"toy curve only. Demo dùng n = {ORDER_N}, không phải secp256k1 và không an toàn."
+    )
     
     st.markdown("""
     **Quy trình:**
@@ -426,14 +582,220 @@ def demo_ecdsa_sign_verify():
     ])
 
 
-# ============= DEMO 3: REUSED NONCE ATTACK =============
+# ============= PAGE 5: MINI BITCOIN TRANSACTION SIGNING =============
+def demo_mini_bitcoin_transaction_signing():
+    """Minh họa ECDSA trong luồng mini Bitcoin transaction / UTXO."""
+    st.title("5. Mini Bitcoin Transaction Signing")
+    render_page_intro(
+        "ECDSA đi vào Bitcoin-like transaction như thế nào?",
+        "Trong toy UTXO flow, signature + public key là unlocking data để chứng minh quyền chi tiêu UTXO.",
+        "Demo cho thấy Alice có UTXO, tạo transaction trả Bob, ký deterministic unsigned transaction data, rồi node toy verify UTXO + public key hash + signature.",
+    )
+
+    st.warning(
+        "P2PKH-like educational model trên toy UTXO set. not real Bitcoin consensus. "
+        "not real Bitcoin transaction serialization. not real Bitcoin signing. "
+        "not full Script / sighash / consensus. Không kết nối Bitcoin network."
+    )
+
+    alice_private_key = 2
+    bob_private_key = 5
+    mallory_private_key = 10
+
+    alice_public_key = ECDSA_PARAMS.curve.scalar_mul(alice_private_key, ECDSA_PARAMS.G)
+    bob_public_key = ECDSA_PARAMS.curve.scalar_mul(bob_private_key, ECDSA_PARAMS.G)
+    mallory_public_key = ECDSA_PARAMS.curve.scalar_mul(mallory_private_key, ECDSA_PARAMS.G)
+
+    alice_pubkey_hash = pubkey_hash_demo(alice_public_key)
+    bob_pubkey_hash = pubkey_hash_demo(bob_public_key)
+    mallory_pubkey_hash = pubkey_hash_demo(mallory_public_key)
+
+    funding_tx = Transaction(
+        inputs=[],
+        outputs=[TxOutput(amount=10, pubkey_hash=alice_pubkey_hash)],
+    )
+    funding_outpoint = OutPoint(txid_demo(funding_tx), 0)
+
+    utxo_set = UTXOSet()
+    utxo_set.add_utxo(funding_outpoint, funding_tx.outputs[0])
+
+    spend_tx = Transaction(
+        inputs=[TxInput(previous_output=funding_outpoint)],
+        outputs=[TxOutput(amount=10, pubkey_hash=bob_pubkey_hash)],
+    )
+    sign_transaction_input(ECDSA_PARAMS, spend_tx, 0, alice_private_key)
+
+    unsigned_bytes = serialize_unsigned_tx(spend_tx)
+    demo_tx_hash = txid_demo(spend_tx)
+    signature = spend_tx.inputs[0].signature
+    public_key = spend_tx.inputs[0].public_key
+
+    st.subheader("1. Alice owns a toy UTXO")
+    ownership_rows = [
+        {"Field": "Owner", "Value": "Alice"},
+        {"Field": "Toy amount", "Value": "10 demo units"},
+        {"Field": "Referenced outpoint", "Value": f"{funding_outpoint.txid[:16]}...:{funding_outpoint.index}"},
+        {"Field": "Locking condition", "Value": "hash(public key Alice)"},
+        {"Field": "Alice pubkey hash", "Value": alice_pubkey_hash},
+    ]
+    st.dataframe(pd.DataFrame(ownership_rows), use_container_width=True)
+
+    st.subheader("2. Alice creates a transaction paying Bob")
+    tx_rows = [
+        {"Role": "Input", "Content": f"Spend toy UTXO {funding_outpoint.txid[:16]}...:{funding_outpoint.index}"},
+        {"Role": "Output", "Content": f"Pay 10 demo units to Bob pubkey hash {bob_pubkey_hash}"},
+    ]
+    st.dataframe(pd.DataFrame(tx_rows), use_container_width=True)
+
+    st.subheader("3. Deterministic unsigned serialization and demo transaction hash")
+    st.caption("serialize_unsigned_tx(tx) dùng JSON với sort_keys=True trong module src.bitcoin_tx.")
+    st.code(unsigned_bytes.decode("utf-8"), language="json")
+    st.info(f"demo transaction hash: `{demo_tx_hash}`")
+
+    st.subheader("4. Alice signs the transaction data")
+    st.caption(
+        "Toy ECDSA ký deterministic unsigned transaction data; hàm ECDSA toy hash dữ liệu này "
+        f"nội bộ modulo n = {ORDER_N}. Đây không phải real Bitcoin sighash."
+    )
+    if signature and public_key:
+        st.code(
+            f"signature = (r={signature[0]}, s={signature[1]})\n"
+            f"public_key = Point(x={public_key.x}, y={public_key.y})",
+            language="text",
+        )
+
+    st.subheader("5. Node verifies spending authority")
+    referenced_output = utxo_set.get_output(funding_outpoint)
+    hash_matches = (
+        referenced_output is not None
+        and public_key is not None
+        and pubkey_hash_demo(public_key) == referenced_output.pubkey_hash
+    )
+    signature_verifies = (
+        signature is not None
+        and public_key is not None
+        and verify(ECDSA_PARAMS, public_key, unsigned_bytes, signature)
+    )
+    valid_spend = verify_transaction_input(ECDSA_PARAMS, spend_tx, 0, utxo_set)
+
+    validation_rows = [
+        {
+            "Check": "referenced UTXO exists",
+            "Result": utxo_set.exists(funding_outpoint),
+            "Meaning": "OutPoint nằm trong toy UTXO set",
+        },
+        {
+            "Check": "UTXO is unspent",
+            "Result": utxo_set.is_unspent(funding_outpoint),
+            "Meaning": "UTXO chưa bị đánh dấu spent",
+        },
+        {
+            "Check": "hash(public key) matches locking condition",
+            "Result": hash_matches,
+            "Meaning": "public key Alice khớp pubkey hash đã khóa UTXO",
+        },
+        {
+            "Check": "ECDSA signature verifies",
+            "Result": signature_verifies,
+            "Meaning": "signature hợp lệ với unsigned transaction data",
+        },
+    ]
+    st.dataframe(pd.DataFrame(validation_rows), use_container_width=True)
+
+    if valid_spend:
+        st.success("Valid spend accepted in the toy model.")
+    else:
+        st.error("Valid spend unexpectedly rejected.")
+
+    st.subheader("6. Failure cases")
+
+    tampered_amount_tx = copy.deepcopy(spend_tx)
+    tampered_amount_tx.outputs[0] = TxOutput(
+        amount=9,
+        pubkey_hash=tampered_amount_tx.outputs[0].pubkey_hash,
+    )
+
+    tampered_recipient_tx = copy.deepcopy(spend_tx)
+    tampered_recipient_tx.outputs[0] = TxOutput(
+        amount=tampered_recipient_tx.outputs[0].amount,
+        pubkey_hash=mallory_pubkey_hash,
+    )
+
+    wrong_public_key_tx = copy.deepcopy(spend_tx)
+    wrong_public_key_tx.inputs[0].public_key = mallory_public_key
+
+    mallory_signed_tx = Transaction(
+        inputs=[TxInput(previous_output=funding_outpoint)],
+        outputs=[TxOutput(amount=10, pubkey_hash=bob_pubkey_hash)],
+    )
+    sign_transaction_input(ECDSA_PARAMS, mallory_signed_tx, 0, mallory_private_key)
+
+    spent_utxo_set = copy.deepcopy(utxo_set)
+    first_spend_accepted = spent_utxo_set.apply_transaction(ECDSA_PARAMS, spend_tx)
+    second_spend_accepted = verify_transaction_input(ECDSA_PARAMS, spend_tx, 0, spent_utxo_set)
+
+    missing_utxo_set = UTXOSet()
+
+    failure_rows = [
+        {
+            "Case": "tampered amount",
+            "Accepted?": verify_transaction_input(ECDSA_PARAMS, tampered_amount_tx, 0, utxo_set),
+            "Why rejected": "amount đổi nên unsigned serialization và signature check không còn khớp",
+        },
+        {
+            "Case": "tampered recipient / locking condition",
+            "Accepted?": verify_transaction_input(ECDSA_PARAMS, tampered_recipient_tx, 0, utxo_set),
+            "Why rejected": "recipient pubkey hash đổi nên transaction data khác chữ ký ban đầu",
+        },
+        {
+            "Case": "wrong public key",
+            "Accepted?": verify_transaction_input(ECDSA_PARAMS, wrong_public_key_tx, 0, utxo_set),
+            "Why rejected": "hash(public key Mallory) không khớp locking condition của Alice",
+        },
+        {
+            "Case": "Mallory signs with another key",
+            "Accepted?": verify_transaction_input(ECDSA_PARAMS, mallory_signed_tx, 0, utxo_set),
+            "Why rejected": "signature/public key của Mallory không mở được UTXO khóa bởi Alice",
+        },
+        {
+            "Case": "double spend",
+            "Accepted?": first_spend_accepted and second_spend_accepted,
+            "Why rejected": "sau lần chi tiêu đầu, toy UTXO set đánh dấu UTXO là spent",
+        },
+        {
+            "Case": "missing UTXO",
+            "Accepted?": verify_transaction_input(ECDSA_PARAMS, spend_tx, 0, missing_utxo_set),
+            "Why rejected": "referenced OutPoint không tồn tại trong toy UTXO set",
+        },
+    ]
+    st.dataframe(pd.DataFrame(failure_rows), use_container_width=True)
+
+    rejected_count = sum(not row["Accepted?"] for row in failure_rows)
+    st.success(f"{rejected_count}/{len(failure_rows)} failure cases rejected by the toy verifier.")
+
+    render_learning_summary("Mini Bitcoin Transaction Signing", [
+        "Trong P2PKH-like educational model, ownership được minh họa bằng khả năng mở khóa UTXO",
+        "Unlocking data gồm signature + public key; locking condition là public key hash",
+        "Signature gắn với transaction data cụ thể nên sửa amount hoặc recipient sẽ fail",
+        "Toy UTXO set chặn missing UTXO và double spend",
+        "Demo này không phải real Bitcoin signing, không phải full Script / sighash / consensus",
+    ])
+
+
+# ============= PAGE 6: REUSED NONCE ATTACK =============
 def demo_reused_nonce_attack():
     """Minh họa tấn công tái sử dụng nonce."""
-    st.title("3️⃣ Tấn công Tái sử dụng Nonce (Reused Nonce Attack)")
+    st.title("6. ECDSA Reused Nonce Attack")
+    render_page_intro(
+        "ECDSA có chắc chắn an toàn không?",
+        "ECDSA phụ thuộc vào cả giả định toán học và kỷ luật triển khai. Nonce k phải mới, bí mật và không được tái sử dụng.",
+        "Demo cho thấy hai chữ ký toy dùng cùng nonce có thể làm khôi phục nonce k và private key d.",
+    )
     
     st.warning("""
-    ⚠️ **CẢNH BÁO GIÁO DỤC**: Đây là mô phỏng trên đường cong toán học cực nhỏ. 
-    Mã này chỉ để minh họa nguyên lý, tuyệt đối không dùng trong thực tế.
+    ⚠️ **CẢNH BÁO GIÁO DỤC**: nonce reuse attack demonstrates implementation failure.
+    Đây là mô phỏng trên toy curve only, không phải secp256k1. Điều này không có nghĩa
+    ECDSA đúng chuẩn bị phá vỡ; nó cho thấy triển khai ECDSA sai nonce có thể chết.
     """)
     
     st.markdown("""
@@ -447,11 +809,10 @@ def demo_reused_nonce_attack():
     - $d' = (s_1 \\cdot k' - h_1) \\cdot r^{-1} \\pmod n$
     """)
     
-    with st.expander("ℹ️ Lưu ý về toy order n = 21", expanded=True):
+    with st.expander(f"ℹ️ Lưu ý về toy order n = {ORDER_N}", expanded=True):
         st.info(
-            "Trong ECDSA thật trên secp256k1, n là order nguyên tố rất lớn. Vì vậy mọi k "
-            "trong khoảng 1 <= k < n đều khả nghịch modulo n. Còn trong toy demo này, "
-            "n = 21 là hợp số nên các giá trị như 3, 7, 14... không có nghịch đảo modulo 21."
+            "Toy curve trong app có order nhỏ để dễ quan sát phép toán. "
+            "secp256k1 thật có order nguyên tố rất lớn và không thể brute force bằng demo này."
         )
     
     col_key, col_nonce = st.columns(2)
@@ -493,16 +854,16 @@ def demo_reused_nonce_attack():
                 if "r=0" in raw_message:
                     st.warning(
                         "Tham số đang chọn tạo ra r = 0 nên chữ ký ECDSA không hợp lệ. "
-                        "Đây là edge case của toy curve n = 21; hãy thử private key hoặc nonce khác."
+                        "Đây là edge case của toy curve rất nhỏ; hãy thử private key hoặc nonce khác."
                     )
                 elif "s=0" in raw_message or "not coprime" in raw_message:
                     st.warning(
                         "Tham số đang chọn tạo ra giá trị s không khả nghịch modulo n, nên toy ECDSA "
-                        "không thể tạo chữ ký hợp lệ. Đây là hạn chế của demo n = 21 là hợp số."
+                        "không thể tạo chữ ký hợp lệ. Đây là hạn chế của toy demo rất nhỏ."
                     )
                 else:
                     st.warning(
-                        "Không thể tạo chữ ký hợp lệ với tham số hiện tại trên toy curve n = 21. "
+                        "Không thể tạo chữ ký hợp lệ với tham số hiện tại trên toy curve. "
                         "Hãy thử private key, nonce hoặc message khác."
                     )
             else:
@@ -610,14 +971,71 @@ def demo_reused_nonce_attack():
         "Nonce k trong ECDSA phải là **duy nhất** cho mỗi chữ ký",
         "Reuse nonce với **hai thông điệp khác nhau** có thể làm lộ private key",
         "Nếu hai message giống nhau thì không tạo ra hai phương trình độc lập để khôi phục k hoặc d",
-        "Toy curve n = 21 chỉ dùng để minh họa, có nhiều edge case toán học không xuất hiện trong secp256k1 thật"
+        "Toy curve chỉ dùng để minh họa, không phải secp256k1 và không an toàn"
     ])
 
 
-# ============= DEMO 4: SHAMIR'S TRICK =============
+# ============= PAGE 7: NONCE DEFENSE NOTES =============
+def demo_nonce_defense_notes():
+    """Ghi chú phòng thủ sau reused nonce attack."""
+    st.title("7. Nonce Defense Notes")
+    render_page_intro(
+        "Nếu nonce reuse nguy hiểm, phòng thủ thế nào?",
+        "Good cryptography = strong math + correct implementation discipline. Nonce generation, side-channel discipline và thư viện trưởng thành đều quan trọng.",
+        "Trang này không triển khai RFC6979 đầy đủ; nó giải thích hướng phòng thủ đúng sau khi đã xem reused nonce attack.",
+    )
+    st.warning(
+        "nonce defense notes are educational, not production guidance. Toy code trong repo không production-safe."
+    )
+
+    defense_rows = [
+        {
+            "Defense": "Never reuse nonce k",
+            "Meaning": "Mỗi chữ ký ECDSA cần nonce riêng; reuse k có thể lộ private key.",
+        },
+        {
+            "Defense": "Secure randomness",
+            "Meaning": "Nếu randomized signing được dùng, RNG phải đáng tin cậy và không bị bias nghiêm trọng.",
+        },
+        {
+            "Defense": "Deterministic ECDSA / RFC6979-style",
+            "Meaning": "Sinh nonce từ private key + message theo quy trình xác định để giảm phụ thuộc RNG ngoài.",
+        },
+        {
+            "Defense": "Constant-time implementation",
+            "Meaning": "Tránh rò rỉ timing/side-channel ở scalar multiplication, inversion, signing.",
+        },
+        {
+            "Defense": "Use mature crypto libraries",
+            "Meaning": "Production nên dùng thư viện được review như libsecp256k1/OpenSSL, không tự viết toy ECDSA.",
+        },
+    ]
+    st.dataframe(pd.DataFrame(defense_rows), use_container_width=True)
+
+    st.info(
+        "RFC6979-style deterministic nonce giúp giảm rủi ro RNG yếu, nhưng không tự nó giải quyết mọi rủi ro triển khai "
+        "như side-channel, lỗi validation, memory safety hoặc misuse API."
+    )
+
+    render_learning_summary("Nonce Defense Notes", [
+        "Nonce reuse là implementation failure, không phải bằng chứng rằng công thức ECDSA sai",
+        "Phòng thủ cần RNG/nonce discipline, constant-time code và thư viện đã được review",
+        "Toy code chỉ để học, không dùng cho ví thật hoặc private key thật",
+    ])
+
+
+# ============= PAGE 8: SHAMIR'S TRICK =============
 def demo_shamir_trick():
     """Minh họa tối ưu hóa bằng Shamir's Trick."""
-    st.title("4️⃣ Tối ưu hóa Shamir's Trick")
+    st.title("8. Shamir's Trick")
+    render_page_intro(
+        "Có thể tối ưu ECDSA verification không?",
+        "Verification cần tính u1G + u2Q. Shamir's trick tối ưu simultaneous scalar multiplication.",
+        "Demo so sánh số phép cộng/nhân đôi giữa cách naive và Shamir trên toy curve.",
+    )
+    st.warning(
+        "toy curve only. Đây là bonus optimization demo, không phải trọng tâm Bitcoin ownership."
+    )
     
     st.markdown("""
     **Vấn đề**: 
@@ -763,8 +1181,13 @@ def parse_benchmark_file(file_path):
 def render_static_openssl_benchmark():
     """Hiển thị kết quả benchmark OpenSSL đã lưu sẵn."""
     st.markdown("""
-    Kết quả benchmark cố định từ `results/openssl_benchmark.txt`, dùng để so sánh ECDSA với RSA.
+    Kết quả benchmark cố định từ `results/openssl_benchmark.txt`, dùng để so sánh RSA với các phép đo `openssl speed`
+    mà OpenSSL hỗ trợ trong môi trường hiện tại.
     """)
+    st.info(
+        "`openssl speed ecdsap256` đo ECDSA trên NIST P-256 / prime256v1. "
+        "Nếu OpenSSL không liệt kê secp256k1 trực tiếp thì không được coi đây là benchmark secp256k1."
+    )
     
     with st.expander("🔧 Các lệnh đã thực thi"):
         st.code("""
@@ -898,11 +1321,7 @@ def render_static_openssl_benchmark():
                 
                 with col3:
                     speedup = fastest_ecdsa["sign_per_sec"] / fastest_rsa["sign_per_sec"]
-                    st.metric(
-                        "⚡ ECDSA nhanh hơn RSA",
-                        f"{speedup:.1f}x",
-                        ""
-                    )
+                    st.metric("Tỉ lệ sign throughput", f"{speedup:.1f}x", "ECDSA/RSA trên bộ dữ liệu hiện có")
             
             st.divider()
             
@@ -933,23 +1352,28 @@ def render_static_openssl_benchmark():
                 st.markdown("""
                 **Nhận xét chính**:
                 
-                1. **ECDSA Nhanh Hơn**: ECDSA (đặc biệt nistp256) **nhanh hơn 20-40x** so với RSA 2048 trong phép ký
+                1. **Đọc đúng phạm vi dữ liệu**: `ecdsap256` trong `openssl speed` là **NIST P-256 / prime256v1**,
+                   không phải `secp256k1`. Nếu output không ghi `secp256k1` rõ ràng, không nên gán nhãn như vậy.
                 
-                2. **Kích thước Khóa Nhỏ**: 
+                2. **Kích thước khóa/chữ ký**: 
                    - RSA 2048 ≈ ECDSA 256 (về mức độ bảo mật)
                    - Nhưng ECDSA 256-bit nhỏ gọn hơn nhiều
                 
-                3. **Ứng dụng Bitcoin**:
+                3. **Hiệu năng phụ thuộc ngữ cảnh**:
+                   - Kết quả phụ thuộc operation, key size, curve, implementation và máy chạy
+                   - RSA verification có thể rất nhanh tùy public exponent và cách OpenSSL triển khai
+                   - Không có kết luận phổ quát kiểu "ECDSA luôn nhanh hơn RSA"
+
+                4. **Liên hệ với Bitcoin**:
                    - Bitcoin sử dụng `secp256k1` (256-bit ECDSA)
-                   - Lý do: Tốc độ nhanh + kích thước chữ ký nhỏ
+                   - Benchmark `openssl speed` ở đây chỉ là tham chiếu hiệu năng cho các thuật toán/curve mà OpenSSL benchmark được
+                   - Demo `gen_keys/sign_verify` mới là phần kết nối trực tiếp tới `secp256k1`
                    - Chữ ký Bitcoin: ~64 byte vs RSA ~256 byte
                    - Tiết kiệm dung lượng blockchain
                 
-                4. **Kết luận**: ECDSA là lựa chọn tối ưu cho:
-                   - ✅ Blockchain & Cryptocurrency
-                   - ✅ IoT devices (tài nguyên hạn chế)
-                   - ✅ High-frequency trading systems
-                   - ✅ Bất cứ nơi nào cần tốc độ + hiệu quả
+                5. **Kết luận phù hợp**:
+                   - ECC/ECDSA thường hấp dẫn vì khóa và chữ ký nhỏ
+                   - Nhưng lựa chọn giữa RSA và ECDSA vẫn phải dựa trên workload cụ thể
                 """)
         else:
             st.warning("⚠️ Không thể parse dữ liệu từ file benchmark")
@@ -966,12 +1390,22 @@ def render_static_openssl_benchmark():
 
 def demo_openssl_summary():
     """Hiển thị kết quả thực nghiệm OpenSSL với visualization."""
-    st.title("5️⃣ Thực nghiệm OpenSSL trên secp256k1")
+    st.title("9. OpenSSL secp256k1 Demo")
+    render_page_intro(
+        "Toy demo có liên hệ công cụ thật không?",
+        "Toy curve giải thích toán học; OpenSSL secp256k1 cho thấy message/file signing bằng công cụ mật mã thật.",
+        "Demo chạy OpenSSL để tạo key tạm, ký message/file, verify thành công và benchmark cẩn trọng.",
+    )
+    st.warning(
+        "OpenSSL signs a message/file, not a full Bitcoin transaction. Đây không phải real Bitcoin transaction signing, "
+        "không phải Script, không phải sighash consensus."
+    )
     
     st.markdown("""
-    Phần này chạy ECDSA thật trên **secp256k1** bằng OpenSSL, khác với toy curve `n = 21`
+    Phần này chạy ECDSA thật trên **secp256k1** bằng OpenSSL, khác với toy curve nhỏ
     ở các phần trước. `secp256k1` là đường cong được Bitcoin sử dụng. OpenSSL là thư viện
-    tối ưu nên kết quả benchmark phản ánh thực nghiệm hệ thống tốt hơn mô phỏng Python toy.
+    tối ưu nên phần sign/verify secp256k1 này giúp nối toy math với công cụ thật. Benchmark
+    `openssl speed` bên dưới vẫn cần đọc đúng theo curve mà OpenSSL thực sự benchmark được.
     """)
     
     tab_static, tab_interactive = st.tabs([
@@ -1046,8 +1480,8 @@ def demo_openssl_summary():
     render_learning_summary("OpenSSL Demo", [
         "OpenSSL là thư viện mã nguồn mở, được sử dụng rộng rãi trong thực tế",
         "`secp256k1` là đường cong tiêu chuẩn được Bitcoin chọn",
-        "ECDSA có lợi thế lớn về kích thước & tốc độ so với RSA",
-        "Hiểu được hiệu năng thực tế giúp thiết kế hệ thống tốt hơn"
+        "Demo sign/verify secp256k1 là phần kết nối với Bitcoin rõ ràng hơn benchmark `openssl speed`",
+        "So sánh RSA/ECDSA phải đọc theo operation, key size, curve, implementation và machine"
     ])
 
 
@@ -1063,14 +1497,24 @@ def main():
     page_id = st.session_state.page_id
     
     if page_id == 0:
-        demo_ecc_toy_curve()
+        demo_big_picture()
     elif page_id == 1:
-        demo_ecdsa_sign_verify()
+        demo_ownership_in_bitcoin()
     elif page_id == 2:
-        demo_reused_nonce_attack()
+        demo_ecc_toy_curve()
     elif page_id == 3:
-        demo_shamir_trick()
+        demo_ecdlp_explanation()
     elif page_id == 4:
+        demo_ecdsa_sign_verify()
+    elif page_id == 5:
+        demo_mini_bitcoin_transaction_signing()
+    elif page_id == 6:
+        demo_reused_nonce_attack()
+    elif page_id == 7:
+        demo_nonce_defense_notes()
+    elif page_id == 8:
+        demo_shamir_trick()
+    elif page_id == 9:
         demo_openssl_summary()
     
     st.divider()

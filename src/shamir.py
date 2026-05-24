@@ -1,4 +1,5 @@
 from src.ecc import Point, Curve
+from src.demo_params import get_demo_params
 
 def naive_mul_add(curve: Curve, u1: int, G: Point, u2: int, Q: Point) -> Point:
     """
@@ -42,9 +43,10 @@ def shamir_mul(curve: Curve, u1: int, G: Point, u2: int, Q: Point) -> Point:
     return res
 
 def benchmark_shamir():
-    toy_curve = Curve(p=223, a=0, b=7)
-    G = Point(47, 71)
-    # n = 21, let's pick some scalars
+    params = get_demo_params()
+    toy_curve = params.curve
+    G = params.G
+    # Pick small scalars for the educational comparison.
     u1, u2 = 13, 19
     Q = toy_curve.scalar_mul(5, G) # Q = 5*G
     
