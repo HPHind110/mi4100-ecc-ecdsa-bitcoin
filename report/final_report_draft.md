@@ -208,21 +208,21 @@ Các phép toán cộng, trừ, nhân, chia đều được thực hiện theo m
 
 Ví dụ:
 
-\[
+$$
 17 + 9 \equiv 3 \pmod{23}
-\]
+$$
 
 vì:
 
-\[
+$$
 17 + 9 = 26,\quad 26 \bmod 23 = 3
-\]
+$$
 
 Một phép toán quan trọng là **nghịch đảo modulo**. Với số `a`, nghịch đảo modulo của `a` theo `p` là số `x` sao cho:
 
-\[
+$$
 ax \equiv 1 \pmod p
-\]
+$$
 
 Trong mã nguồn, `src/field.py` triển khai:
 
@@ -238,9 +238,9 @@ mod_div(a, b, p)
 
 Dạng Weierstrass ngắn thường dùng trong demo là:
 
-\[
+$$
 E: y^2 \equiv x^3 + ax + b \pmod p
-\]
+$$
 
 Tập điểm của đường cong bao gồm:
 
@@ -259,27 +259,27 @@ Trên số thực, phép cộng điểm có trực giác hình học: đường 
 
 Phép toán trung tâm của ECC là nhân vô hướng:
 
-\[
+$$
 Q = dG
-\]
+$$
 
 Hiểu đơn giản, `dG` là cộng `G` với chính nó `d` lần:
 
-\[
+$$
 dG = \underbrace{G + G + \cdots + G}_{d\ \text{lần}}
-\]
+$$
 
 Cộng lặp trực tiếp có độ phức tạp tuyến tính theo `d`, tức:
 
-\[
+$$
 O(d)
-\]
+$$
 
 Nhưng trong thực tế, ta dùng thuật toán **Double-and-Add**. Ý tưởng là biểu diễn `d` ở dạng nhị phân, rồi duyệt từng bit để kết hợp phép nhân đôi điểm và cộng điểm. Nhờ đó độ phức tạp theo số bit của `d`:
 
-\[
+$$
 O(\log d)
-\]
+$$
 
 Trong dự án, phép nhân vô hướng được triển khai trong `src/ecc.py`.
 
@@ -336,53 +336,53 @@ Trong Bitcoin:
 
 Chọn private key:
 
-\[
+$$
 d \in [1, n - 1]
-\]
+$$
 
 Tính public key:
 
-\[
+$$
 Q = dG
-\]
+$$
 
 ### 2.9.2. Ký thông điệp
 
 Với thông điệp `m`, tính giá trị băm:
 
-\[
+$$
 h = H(m)
-\]
+v
 
 Chọn nonce bí mật dùng một lần:
 
-\[
+$$
 k \in [1, n - 1]
-\]
+$$
 
 Tính:
 
-\[
+$$
 R = kG
-\]
+$$
 
 Lấy:
 
-\[
+$$
 r = x_R \bmod n
-\]
+$$
 
 Tính:
 
-\[
+$$
 s = k^{-1}(h + dr) \bmod n
-\]
+$$
 
 Chữ ký là:
 
-\[
+$$
 (r, s)
-\]
+$$
 
 ### 2.9.3. Xác minh chữ ký
 
@@ -390,33 +390,33 @@ Người xác minh biết thông điệp `m`, chữ ký `(r, s)` và public key 
 
 Tính:
 
-\[
+$$
 h = H(m)
-\]
+$$
 
-\[
+$$
 w = s^{-1} \bmod n
-\]
+$$
 
-\[
+$$
 u_1 = hw \bmod n
-\]
+$$
 
-\[
+$$
 u_2 = rw \bmod n
-\]
+$$
 
 Tính điểm:
 
-\[
+$$
 X = u_1G + u_2Q
-\]
+$$
 
 Chữ ký hợp lệ nếu:
 
-\[
+$$
 x_X \bmod n = r
-\]
+$$
 
 ### 2.9.4. Trực giác
 
@@ -471,51 +471,51 @@ Nonce `k` trong ECDSA là giá trị cực kỳ nhạy cảm. Nó phải:
 
 Nếu cùng một `k` được dùng để ký hai thông điệp khác nhau bằng cùng private key, ta có hai chữ ký:
 
-\[
+$$
 (r, s_1),\quad (r, s_2)
-\]
+$$
 
 với cùng `r`.
 
 Từ công thức:
 
-\[
+$$
 s = k^{-1}(h + dr) \bmod n
-\]
+$$
 
 suy ra:
 
-\[
+$$
 ks = h + dr \bmod n
-\]
+$$
 
 Với hai thông điệp:
 
-\[
+$$
 ks_1 = h_1 + dr \bmod n
-\]
+$$
 
-\[
+$$
 ks_2 = h_2 + dr \bmod n
-\]
+$$
 
 Trừ hai phương trình:
 
-\[
+$$
 k(s_1 - s_2) = h_1 - h_2 \bmod n
-\]
+$$
 
 Do đó:
 
-\[
+$$
 k = (h_1 - h_2)(s_1 - s_2)^{-1} \bmod n
-\]
+$$
 
 Sau khi có `k`, private key được khôi phục bằng:
 
-\[
+$$
 d = (s_1k - h_1)r^{-1} \bmod n
-\]
+$$
 
 Đây là điểm rất quan trọng: trong kịch bản này attacker không cần giải ECDLP. Private key bị lộ do lỗi triển khai nonce.
 
@@ -525,9 +525,9 @@ RFC 6979 đề xuất cách sinh nonce xác định cho DSA/ECDSA từ private k
 
 Trong bước xác minh ECDSA, cần tính:
 
-\[
+$$
 X = u_1G + u_2Q
-\]
+$$
 
 Cách ngây thơ là tính riêng `u1G`, tính riêng `u2Q`, rồi cộng lại. Shamir's trick tối ưu bằng cách xử lý hai phép nhân vô hướng cùng lúc, quét bit của `u1` và `u2` song song.
 
@@ -609,13 +609,13 @@ PROJECT_PLAN.md
 
 Dự án dùng toy curve nhỏ để minh họa:
 
-\[
+$$
 p = 17,\quad a = 3,\quad b = 5
-\]
+$$
 
-\[
+$$
 G = (1,3),\quad n = 23
-\]
+$$
 
 Ưu điểm của bộ tham số này là `n = 23` là số nguyên tố, nên các phép nghịch đảo modulo trong ECDSA sạch hơn so với các demo cũ dùng order hợp số. Tuy nhiên, curve này cực nhỏ và hoàn toàn không có giá trị bảo mật. Nó chỉ dùng để học.
 
