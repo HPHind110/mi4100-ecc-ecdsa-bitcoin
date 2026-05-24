@@ -2,6 +2,10 @@
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+*.egg-info/
+dist/
+build/
 
 # Secrets / generated crypto artifacts
 *.pem
@@ -9,15 +13,26 @@ __pycache__/
 *.bin
 .env
 
-# OpenSSL generated demo outputs
-openssl_demo/*.pem
-openssl_demo/*.key
-openssl_demo/*.bin
+# Generated outputs
+results/
+sig.bin
+message.txt
+message_tampered.txt
 
-# Source papers and extracted text
-# docs/papers/
-# docs/context/extracted/
+# Removed folders (reference only, not needed in repo)
+openssl_demo/
+scripts/
+docs/papers/
+docs/context/
 
-# Local/editor
-.vscode/
+# Source extraction utilities
+scripts/extract_pdfs.py
+
+# Map
+AGENTS.md
+
+# Temporary files
 .DS_Store
+.vscode/
+*.swp
+*~
