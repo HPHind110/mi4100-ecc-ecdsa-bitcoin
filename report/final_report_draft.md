@@ -198,9 +198,9 @@ Bài toán tìm `d` từ `G` và `Q` được gọi là ECDLP. Ưu điểm lớn
 
 ECC trong mật mã không làm việc trên đường cong liên tục của số thực, mà làm việc trên trường hữu hạn. Trong dự án, trường hữu hạn được ký hiệu:
 
-\[
+$$
 \mathbb{F}_p
-\]
+$$
 
 với `p` là số nguyên tố.
 
