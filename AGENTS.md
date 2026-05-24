@@ -13,7 +13,12 @@ The project does **not** propose a new cryptosystem, wallet, blockchain, or cryp
 The goal is to explain, simulate, and demonstrate how:
 
 ```text
-ECC → ECDLP → ECDSA → Bitcoin transaction authentication
+Bitcoin ownership problem
+→ UTXO spending authority
+→ ECC
+→ ECDLP
+→ ECDSA
+→ Bitcoin transaction authentication
 ```
 
 connect together in a clear course-project storyline.
@@ -31,6 +36,23 @@ The central thesis of the project is:
 > Bitcoin does not use ECC/ECDSA to encrypt transactions. Bitcoin uses ECDSA to prove spending authority. ECC provides the mathematical structure, ECDLP provides the computational hardness assumption, ECDSA provides the digital signature mechanism, and Bitcoin uses that signature mechanism to verify who is allowed to spend a UTXO.
 
 All code, docs, reports, slides, and UI pages should support this thesis.
+
+The final storyline should make this chain obvious:
+
+```text
+Bitcoin needs ownership without banks
+→ ownership means satisfying a UTXO spending condition
+→ in the P2PKH-like demo, this means producing a valid signature
+→ private key creates public key by Q = dG
+→ ECDLP protects the private key from the public key
+→ ECDSA signs transaction data
+→ nodes verify the signature with the public key
+→ tampering, wrong keys, missing UTXOs, and double spends fail
+→ nonce reuse leaks the private key
+→ nonce defense explains how correct implementations avoid this failure
+→ Shamir's trick optimizes verification
+→ OpenSSL secp256k1 connects toy math to real tooling
+```
 
 Avoid turning the project into:
 
@@ -70,7 +92,13 @@ Ownership is not simply a balance field in a bank database.
 In a Bitcoin-like UTXO model:
 
 ```text
-Ownership = ability to produce a valid digital signature that unlocks a UTXO
+Ownership = ability to satisfy the spending condition of a UTXO
+```
+
+In the simplified P2PKH-like educational demo:
+
+```text
+Ownership ≈ ability to produce a valid digital signature that unlocks a UTXO
 ```
 
 A P2PKH-like explanation is allowed:
@@ -82,6 +110,22 @@ verification       ≈ hash(public key) matches lock and signature verifies
 ```
 
 Use the phrase **P2PKH-like educational demo**, not “full real Bitcoin script implementation”.
+
+Important nuance:
+
+```text
+In the P2PKH-like demo, ownership is simplified to producing a valid signature.
+In real Bitcoin, spending authority is more general: it means satisfying the script/spending condition.
+```
+
+At this stage, ECDSA can be treated as a black box:
+
+```text
+valid signature   → spending authority demonstrated
+invalid signature → spending authority not demonstrated
+```
+
+Do not fully derive ECDSA formulas here. That belongs to Q4.
 
 ---
 
@@ -126,6 +170,13 @@ On a small toy curve, this can be brute-forced.
 
 On real parameters such as secp256k1, recovering `d` from `Q` is computationally infeasible with known classical generic attacks.
 
+Make the distinction explicit:
+
+```text
+Toy curve: useful for visualizing group operations and toy attacks.
+Real secp256k1: not brute-forced by the demo code.
+```
+
 Allowed educational demos:
 
 ```text
@@ -159,11 +210,30 @@ verify(tampered_message, signature, public_key) = False
 
 This demonstrates integrity and authentication.
 
+This is where the internal ECDSA mechanism should be explained:
+
+```text
+r, s are the signature components
+k is the per-signature nonce
+signing uses the private key d
+verification uses the public key Q
+verification checks consistency through u1G + u2Q
+```
+
+The intended lesson:
+
+```text
+Q1 explains what ECDSA is used for.
+Q4 explains how ECDSA works.
+```
+
 ---
 
 ### Q5. ECDSA đi vào Bitcoin transaction như thế nào?
 
 ECDSA should be connected to a mini Bitcoin transaction/UTXO flow.
+
+This is the central missing layer if the repo only signs ordinary text messages.
 
 Required educational flow:
 
@@ -180,14 +250,22 @@ if valid and UTXO is unspent, the transaction is accepted in the toy model
 Required failure cases:
 
 ```text
-tampered output amount        → verification fails
-wrong public key              → verification fails
-Mallory signs with another key → verification fails
-same UTXO spent twice         → rejected as double spend in toy UTXO set
-missing UTXO                  → rejected
+valid spend                      → accepted
+tampered output amount           → rejected
+tampered recipient               → rejected
+wrong public key                 → rejected
+Mallory signs with another key   → rejected
+same UTXO spent twice            → rejected as double spend in toy UTXO set
+missing UTXO                     → rejected
+public-key-hash mismatch         → rejected
 ```
 
-This is the most important missing layer if the repo only signs ordinary text messages.
+This demo should make the following idea concrete:
+
+```text
+The signature is not floating in isolation.
+It unlocks a specific UTXO under a specific spending condition.
+```
 
 Use honest naming:
 
@@ -236,7 +314,40 @@ This does not mean correct ECDSA is broken.
 It means ECDSA implementations die if nonce generation is wrong.
 ```
 
+The intended message:
+
+```text
+ECDSA is not broken because the formula is wrong.
+ECDSA fails when implementation requirements, especially nonce generation, are violated.
+```
+
 Do not overstate the attack.
+
+---
+
+### Q6.5. Nếu nonce reuse nguy hiểm, phòng thủ thế nào?
+
+After showing the reused nonce attack, explain the defense direction.
+
+Recommended defense notes:
+
+```text
+never reuse nonce k
+use secure randomness when randomized signing is used
+use deterministic ECDSA/RFC6979-style nonce generation when appropriate
+use constant-time, well-reviewed cryptographic libraries
+avoid writing production ECDSA from scratch
+```
+
+This section is primarily explanatory.
+
+It does not need to implement full RFC6979 unless explicitly requested.
+
+The intended lesson:
+
+```text
+Good cryptography = strong math + correct implementation discipline.
+```
 
 ---
 
@@ -254,7 +365,7 @@ This is a bonus optimization demo, not the central thesis.
 
 Use it to support the course angle on algorithms and complexity.
 
-Do not let it overshadow the Bitcoin ownership and transaction-signing story.
+Do not let it overshadow the Bitcoin ownership, transaction-signing, and nonce-failure story.
 
 ---
 
@@ -282,6 +393,8 @@ Be precise:
 OpenSSL message signing on secp256k1 is real cryptographic tooling.
 It is not full Bitcoin transaction signing.
 ```
+
+Do not imply that OpenSSL file signing demonstrates the full Bitcoin transaction lifecycle.
 
 ---
 
@@ -327,6 +440,9 @@ docs/modern_bitcoin_crypto_notes.md
 src/bitcoin_tx.py
 src/ecdlp_attacks.py
 
+optional:
+src/rfc6979_notes.py or docs/rfc6979_nonce_defense.md
+
 tests/test_bitcoin_tx.py
 tests/test_ecdlp_attacks.py
 ```
@@ -343,18 +459,21 @@ The repo should ultimately support these deliverables:
 4. Tampered transaction verification failure.
 5. Wrong-key verification failure.
 6. Double-spend rejection in toy UTXO set.
-7. Reused nonce attack demo recovering the private key.
-8. Optional ECDLP toy attacks:
+7. Missing UTXO rejection in toy UTXO set.
+8. Public-key-hash mismatch rejection.
+9. Reused nonce attack demo recovering the private key.
+10. Nonce defense notes explaining RNG, RFC6979-style deterministic nonce generation, constant-time implementation, and library discipline.
+11. Optional ECDLP toy attacks:
 
    * brute force
    * Baby-step Giant-step
    * Pollard rho only if robust and marked experimental
-9. Optional verification optimization:
+12. Optional verification optimization:
 
    * Shamir's trick for `u1G + u2Q`
-10. OpenSSL secp256k1 sign/verify demo.
-11. Careful RSA/ECDSA benchmark discussion.
-12. Report outline and slide outline following Q0–Q8.
+13. OpenSSL secp256k1 sign/verify demo.
+14. Careful RSA/ECDSA benchmark discussion.
+15. Report outline and slide outline following Q0–Q8, with Q6.5 defense notes included.
 
 ---
 
@@ -400,6 +519,8 @@ Toy curve security represents real Bitcoin security.
 OpenSSL message signing is the same as full Bitcoin transaction signing.
 ECDSA is always faster than RSA in every operation.
 secp256k1 can be brute-forced with the demo code.
+Bitcoin ownership is always just one ECDSA signature.
+The mini transaction demo implements real Bitcoin consensus.
 ```
 
 Prefer saying:
@@ -412,6 +533,8 @@ ECC gives Q = dG.
 ECDLP makes recovering d from Q infeasible for real parameters.
 Toy curves are educational only.
 Nonce reuse is an implementation failure.
+In the P2PKH-like demo, ownership is simplified as a valid signature.
+In real Bitcoin, spending authority means satisfying the relevant script/spending condition.
 OpenSSL secp256k1 connects the toy model to real cryptographic tooling.
 Benchmark results depend on operation type, key size, curve, implementation, and machine.
 ```
@@ -492,6 +615,7 @@ public key hash matches locking condition
 signature verifies against unsigned transaction data
 tampering invalidates signature
 wrong key invalidates signature
+Mallory signature invalidates spending attempt
 double spend is rejected
 ```
 
@@ -556,9 +680,36 @@ For real secp256k1, sqrt(n) is still infeasible.
 
 ---
 
+## Nonce defense scope
+
+If adding a nonce-defense section or file, keep it educational.
+
+Recommended content:
+
+```text
+why ECDSA needs a fresh unpredictable nonce k
+why reused k leaks the private key
+why biased or partially leaked k can also be dangerous
+how deterministic ECDSA/RFC6979-style nonce generation reduces RNG dependence
+why constant-time implementation matters
+why production systems should use mature libraries such as libsecp256k1/OpenSSL instead of toy code
+```
+
+Optional demo:
+
+```text
+show deterministic nonce idea conceptually
+```
+
+Do not implement or advertise production-grade signing code.
+
+Do not claim RFC6979 alone solves all implementation risks.
+
+---
+
 ## Streamlit app requirements
 
-The Streamlit app should follow the Q0–Q8 storyline.
+The Streamlit app should follow the Q0–Q8 storyline, with defense notes placed before optimization.
 
 Recommended navigation:
 
@@ -570,8 +721,9 @@ Recommended navigation:
 4. ECDSA Sign/Verify
 5. Mini Bitcoin Transaction Signing
 6. ECDSA Reused Nonce Attack
-7. Shamir's Trick
-8. OpenSSL secp256k1 Demo
+7. Defense Notes
+8. Shamir's Trick
+9. OpenSSL secp256k1 Demo
 ```
 
 Each page should start with:
@@ -587,10 +739,12 @@ Warnings should be visible where relevant:
 ```text
 toy curve only
 n = 21 is composite
+P2PKH-like educational model only
 not real Bitcoin consensus
 not real Bitcoin transaction serialization
 OpenSSL signs a message/file, not a full Bitcoin transaction
 nonce reuse attack demonstrates implementation failure
+nonce defense notes are educational, not production guidance
 ```
 
 Do not make the app look like a real wallet.
@@ -605,12 +759,14 @@ Docs should follow the same storyline:
 
 ```text
 Bitcoin problem
-→ ownership as signature over UTXO spending
+→ ownership as UTXO spending authority
+→ P2PKH-like ownership as signature + public key
 → ECC and Q = dG
 → ECDLP hardness
 → ECDSA sign/verify
 → mini Bitcoin transaction demo
 → nonce reuse failure
+→ nonce defense notes
 → verification optimization
 → OpenSSL secp256k1 connection
 → limitations and conclusion
@@ -627,8 +783,10 @@ Required limitations section:
 ```text
 Toy curve is not secure.
 Mini transaction model is not full Bitcoin.
+P2PKH-like ownership is a simplification; real Bitcoin spending conditions can be more general.
 OpenSSL demo is real cryptographic tooling but not full Bitcoin signing.
 Nonce reuse attack is an implementation failure demo.
+Nonce defense notes are educational and do not make toy code production-safe.
 ECDLP attacks are toy demonstrations.
 ```
 
@@ -755,6 +913,7 @@ Shamir result matches naive result
 Bitcoin toy transaction valid spend succeeds
 tampered transaction fails
 wrong-key transaction fails
+Mallory-signed transaction fails
 double-spend fails
 missing UTXO fails
 public-key-hash mismatch fails
@@ -888,13 +1047,16 @@ The final project should make this chain obvious:
 
 ```text
 Bitcoin needs ownership without banks
-→ ownership means valid signature over UTXO spending
+→ ownership means satisfying a UTXO spending condition
+→ in the P2PKH-like demo, ownership is shown by a valid signature
 → private key creates public key by Q = dG
 → ECDLP protects private key from public key
 → ECDSA signs transaction data
 → nodes verify signature with public key
 → tampering or wrong key fails
+→ missing UTXO and double spend fail
 → nonce reuse leaks private key
+→ nonce defense explains secure implementation discipline
 → Shamir's trick optimizes verification
 → OpenSSL secp256k1 connects toy math to real tooling
 ```
