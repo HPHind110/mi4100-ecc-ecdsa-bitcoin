@@ -144,6 +144,39 @@ def get_curve_points(p: int, a: int, b: int):
                 points.append((x, y))
     return points
 
+@st.cache_data
+def get_real_curve_points(a: int, b: int, x_min: float, x_max: float, samples: int = 700):
+    """Tạo dữ liệu để vẽ đường cong y^2 = x^3 + ax + b trên số thực.
+
+    Đây chỉ là hình trực giác hình học.
+    ECC trong mật mã không chạy trên số thực, mà chạy trên trường hữu hạn F_p.
+    """
+    rows = []
+
+    for i in range(samples + 1):
+        x = x_min + (x_max - x_min) * i / samples
+        rhs = x**3 + a * x + b
+
+        if rhs < 0:
+            continue
+
+        y = rhs ** 0.5
+
+        rows.append({
+            "x": x,
+            "y": y,
+            "Nhánh": "y = +sqrt(x³ + ax + b)",
+        })
+
+        if y != 0:
+            rows.append({
+                "x": x,
+                "y": -y,
+                "Nhánh": "y = -sqrt(x³ + ax + b)",
+            })
+
+    return pd.DataFrame(rows)
+
 
 def set_page(page_id: int) -> None:
     st.session_state.page_id = max(0, min(int(page_id), len(DEMOS) - 1))
@@ -1113,9 +1146,47 @@ def demo_ecc_toy_curve():
             "Đường cong mô phỏng",
             "Một curve nhỏ để dễ tính toán và trực quan hóa. Nó giúp hiểu ý tưởng, nhưng không dùng cho hệ thống thật."
         ),
+        (
+            "Trường hữu hạn F_p",
+            "Tập các số 0, 1, ..., p-1 với phép cộng, trừ, nhân, chia đều lấy phần dư modulo p. ECC trong mật mã chạy trên môi trường rời rạc này."
+        ),
+        (
+            "secp256k1",
+            "Đường cong Bitcoin dùng trong ECDSA truyền thống, có dạng y² = x³ + 7 trên một trường hữu hạn rất lớn."
+        ),
     ])
 
     st.latex(rf"y^2 \equiv x^3 + {DEMO_A}x + {DEMO_B} \pmod{{{DEMO_P}}}")
+
+    with st.container(border=True):
+        st.markdown("### ₿ Liên hệ với Bitcoin: secp256k1")
+
+        st.markdown(
+            """
+            Bitcoin truyền thống dùng đường cong **secp256k1**. Nó cũng có dạng:
+
+            ```text
+            y² = x³ + ax + b mod p
+            ```
+
+            nhưng với:
+
+            ```text
+            a = 0
+            b = 7
+            ```
+
+            nên phương trình trở thành:
+
+            ```text
+            y² = x³ + 7 mod p
+            ```
+
+            Điểm khác biệt ở đây là: trong demo ta dùng trường nhỏ như `F_p` để dễ vẽ,
+            còn Bitcoin dùng một trường hữu hạn 256-bit rất lớn. Vì vậy demo này giúp hiểu ý tưởng,
+            chứ không mô phỏng độ an toàn thật của Bitcoin.
+            """
+        )
 
     d = st.slider(
         "🔑 Chọn khóa bí mật mô phỏng d",
@@ -1178,45 +1249,197 @@ def demo_ecc_toy_curve():
             "không cần cộng G lặp lại d lần. Nhưng đi ngược từ Q về d lại là bài toán ECDLP."
         )
 
-    points = get_curve_points(
-        ECDSA_PARAMS.curve.p,
-        ECDSA_PARAMS.curve.a,
-        ECDSA_PARAMS.curve.b,
-    )
+    # points = get_curve_points(
+    #     ECDSA_PARAMS.curve.p,
+    #     ECDSA_PARAMS.curve.a,
+    #     ECDSA_PARAMS.curve.b,
+    # )
 
-    df = pd.DataFrame(points, columns=["x", "y"])
+    # df = pd.DataFrame(points, columns=["x", "y"])
 
-    colors, sizes, labels = [], [], []
+    # colors, sizes, labels = [], [], []
 
-    for x, y in points:
-        if x == ECDSA_PARAMS.G.x and y == ECDSA_PARAMS.G.y:
-            colors.append("Điểm sinh G")
-            sizes.append(18)
-            labels.append("G")
-        elif not Q.is_infinity and x == Q.x and y == Q.y:
-            colors.append("Khóa công khai Q")
-            sizes.append(18)
-            labels.append("Q")
+    # for x, y in points:
+    #     if x == ECDSA_PARAMS.G.x and y == ECDSA_PARAMS.G.y:
+    #         colors.append("Điểm sinh G")
+    #         sizes.append(18)
+    #         labels.append("G")
+    #     elif not Q.is_infinity and x == Q.x and y == Q.y:
+    #         colors.append("Khóa công khai Q")
+    #         sizes.append(18)
+    #         labels.append("Q")
+    #     else:
+    #         colors.append("Điểm trên đường cong")
+    #         sizes.append(6)
+    #         labels.append("point")
+
+    # df["type"] = colors
+    # df["size"] = sizes
+    # df["label"] = labels
+
+    # fig = px.scatter(
+    #     df,
+    #     x="x",
+    #     y="y",
+    #     color="type",
+    #     size="size",
+    #     hover_name="label",
+    #     title=f"Các điểm trên đường cong mô phỏng trên trường F_{DEMO_P}",
+    # )
+
+    # st.plotly_chart(fig, use_container_width=True)
+
+    viz_tab_real, viz_tab_finite = st.tabs([
+        "🌊 Trực giác hình học trên số thực",
+        f"🔢 Điểm rời rạc trên F_{DEMO_P}",
+    ])
+
+    with viz_tab_real:
+        st.markdown(
+            """
+            Trên số thực, elliptic curve nhìn giống một đường cong mượt.
+            Hình này chỉ để lấy trực giác hình học.
+
+            Nhưng trong mật mã, ta không dùng toàn bộ đường cong mượt này.
+            Ta làm việc trên trường hữu hạn `F_p`, nên chỉ còn các điểm rời rạc.
+            """
+        )
+
+        real_choice = st.radio(
+            "Chọn đường cong để quan sát",
+            [
+                "Đường cong mô phỏng hiện tại",
+                "Dạng Bitcoin: y² = x³ + 7",
+            ],
+            horizontal=True,
+        )
+
+        if real_choice == "Dạng Bitcoin: y² = x³ + 7":
+            real_a, real_b = 0, 7
+            real_title = "Trực giác hình học của dạng Bitcoin: y² = x³ + 7"
         else:
-            colors.append("Điểm trên đường cong")
-            sizes.append(6)
-            labels.append("point")
+            real_a, real_b = DEMO_A, DEMO_B
+            real_title = f"Trực giác hình học của đường cong mô phỏng: y² = x³ + {DEMO_A}x + {DEMO_B}"
 
-    df["type"] = colors
-    df["size"] = sizes
-    df["label"] = labels
+        real_df = get_real_curve_points(
+            real_a,
+            real_b,
+            x_min=-5,
+            x_max=8,
+            samples=900,
+        )
 
-    fig = px.scatter(
-        df,
-        x="x",
-        y="y",
-        color="type",
-        size="size",
-        hover_name="label",
-        title=f"Các điểm trên đường cong mô phỏng trên trường F_{DEMO_P}",
-    )
+        if real_df.empty:
+            st.warning("Không có đủ điểm thực để vẽ trong khoảng hiện tại.")
+        else:
+            fig_real = px.line(
+                real_df,
+                x="x",
+                y="y",
+                color="Nhánh",
+                title=real_title,
+            )
 
-    st.plotly_chart(fig, use_container_width=True)
+            fig_real.update_layout(
+                height=520,
+                xaxis_title="x",
+                yaxis_title="y",
+            )
+
+            fig_real.update_yaxes(
+                scaleanchor="x",
+                scaleratio=1,
+            )
+
+            st.plotly_chart(fig_real, use_container_width=True)
+
+        st.info(
+            "Hình này giúp hiểu trực giác 'đường cong'. "
+            "Phần mật mã nằm ở tab bên cạnh: các điểm rời rạc trên F_p."
+        )
+
+    with viz_tab_finite:
+        st.markdown(
+            f"""
+            Đây là đường cong trên trường hữu hạn `F_{DEMO_P}`.
+
+            Nghĩa là `x` và `y` chỉ nhận các giá trị:
+
+            ```text
+            0, 1, 2, ..., {DEMO_P - 1}
+            ```
+
+            và mọi phép tính đều lấy phần dư modulo `{DEMO_P}`.
+            Vì vậy hình không còn là đường cong mượt, mà là một tập các điểm rời rạc.
+            """
+        )
+
+        points = get_curve_points(
+            ECDSA_PARAMS.curve.p,
+            ECDSA_PARAMS.curve.a,
+            ECDSA_PARAMS.curve.b,
+        )
+
+        df = pd.DataFrame(points, columns=["x", "y"])
+
+        colors, sizes, labels = [], [], []
+
+        q_is_normal_point = Q is not None and not getattr(Q, "is_infinity", False)
+
+        for x, y in points:
+            if x == ECDSA_PARAMS.G.x and y == ECDSA_PARAMS.G.y:
+                colors.append("Điểm sinh G")
+                sizes.append(18)
+                labels.append("G")
+            elif q_is_normal_point and x == Q.x and y == Q.y:
+                colors.append("Khóa công khai Q")
+                sizes.append(18)
+                labels.append("Q")
+            else:
+                colors.append("Điểm trên đường cong")
+                sizes.append(7)
+                labels.append("point")
+
+        df["type"] = colors
+        df["size"] = sizes
+        df["label"] = labels
+
+        fig = px.scatter(
+            df,
+            x="x",
+            y="y",
+            color="type",
+            size="size",
+            hover_name="label",
+            title=f"Các điểm trên đường cong mô phỏng trên trường F_{DEMO_P}",
+        )
+
+        fig.update_layout(
+            height=560,
+            xaxis_title=f"x trong F_{DEMO_P}",
+            yaxis_title=f"y trong F_{DEMO_P}",
+        )
+
+        fig.update_xaxes(
+            dtick=1,
+            range=[-1, DEMO_P],
+            showgrid=True,
+        )
+
+        fig.update_yaxes(
+            dtick=1,
+            range=[-1, DEMO_P],
+            showgrid=True,
+            scaleanchor="x",
+            scaleratio=1,
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.caption(
+            "G là điểm sinh. Q là khóa công khai được tạo từ Q = dG. "
+            "Các điểm còn lại chỉ là những điểm thỏa phương trình trên F_p."
+        )
 
     render_learning_summary(
         "ECC",
@@ -2847,7 +3070,6 @@ def demo_openssl_summary():
             - **Public key**: khóa công khai, dùng để kiểm tra chữ ký.
 
             Đây là key tạm nằm trong thư mục tạm của app, không phải ví Bitcoin thật.
-            Các file này chỉ phục vụ demo local và không nên commit lên GitHub.
             """
         )
 
