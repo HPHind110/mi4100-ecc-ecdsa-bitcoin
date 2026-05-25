@@ -315,9 +315,9 @@ Các thuật toán này chỉ dùng để minh họa ECDLP trên toy curve, khô
 
 Bitcoin truyền thống sử dụng ECDSA trên đường cong `secp256k1`. Đường cong này có dạng:
 
-\[
+$$
 y^2 = x^3 + 7
-\]
+$$
 
 trên một trường hữu hạn nguyên tố rất lớn. Bộ tham số `secp256k1` được định nghĩa trong SEC 2, bao gồm trường hữu hạn, hệ số đường cong, điểm sinh `G`, bậc nhóm `n` và cofactor `h`.
 
@@ -352,7 +352,7 @@ Với thông điệp `m`, tính giá trị băm:
 
 $$
 h = H(m)
-v
+$$
 
 Chọn nonce bí mật dùng một lần:
 
