@@ -278,6 +278,134 @@ def render_learning_summary(title: str, points: list[str]) -> None:
         for i, point in enumerate(points, 1):
             st.markdown(f"**{i}.** {point}")
 
+def render_ecdsa_formula_box() -> None:
+    """Hiển thị công thức ECDSA ở mức vừa đủ cho phần demo ký/verify."""
+    with st.expander("📐 Công thức ECDSA bên dưới demo", expanded=False):
+        st.markdown(
+            """
+            ECDSA có hai pha chính: **ký** và **kiểm tra chữ ký**.
+
+            Trong đó:
+
+            - `m`: dữ liệu cần ký
+            - `h`: giá trị băm của dữ liệu
+            - `d`: khóa bí mật
+            - `Q = dG`: khóa công khai
+            - `k`: nonce dùng một lần khi ký
+            - `(r, s)`: chữ ký ECDSA
+            """
+        )
+
+        col_sign, col_verify = st.columns(2)
+
+        with col_sign:
+            st.markdown("#### 1. Ký bằng private key")
+
+            st.latex(r"h = H(m) \bmod n")
+            st.latex(r"R = kG")
+            st.latex(r"r = x_R \bmod n")
+            st.latex(r"s = k^{-1}(h + rd) \bmod n")
+
+            st.caption(
+                "Người ký cần private key d và nonce k. "
+                "Nếu k bị lộ hoặc bị dùng lại, private key có thể bị lộ."
+            )
+
+        with col_verify:
+            st.markdown("#### 2. Kiểm tra bằng public key")
+
+            st.latex(r"w = s^{-1} \bmod n")
+            st.latex(r"u_1 = hw \bmod n")
+            st.latex(r"u_2 = rw \bmod n")
+            st.latex(r"P = u_1G + u_2Q")
+            st.latex(r"\text{valid} \iff x_P \bmod n = r")
+
+            st.caption(
+                "Người kiểm tra chỉ cần message, chữ ký (r, s) và public key Q. "
+                "Không cần biết private key d."
+            )
+
+        st.info(
+            "Điểm quan trọng: verification kiểm tra một quan hệ toán học giữa message, chữ ký và public key. "
+            "Nó không khôi phục private key."
+        )
+
+def render_ecdsa_verification_trace(params, Q, message: bytes, signature: tuple[int, int]) -> None:
+    """Hiển thị các giá trị trung gian trong bước ECDSA verification.
+
+    Đây là trace giáo dục để người học thấy verify không phải hộp đen.
+    Không dùng cho production crypto.
+    """
+    r, s = signature
+    n = params.n
+
+    h = hash_message_to_int(message, n)
+    w = safe_mod_inverse(s, n)
+
+    if w is None:
+        st.error("Không thể trace verify vì s không có nghịch đảo modulo n.")
+        return
+
+    u1 = (h * w) % n
+    u2 = (r * w) % n
+
+    p1 = params.curve.scalar_mul(u1, params.G)
+    p2 = params.curve.scalar_mul(u2, Q)
+    P = params.curve.point_add(p1, p2)
+
+    if P.is_infinity:
+        x_mod_n = None
+        final_check = False
+    else:
+        x_mod_n = P.x % n
+        final_check = x_mod_n == r
+
+    rows = [
+        {
+            "Bước": "Hash dữ liệu",
+            "Công thức": "h = H(m) mod n",
+            "Giá trị": h,
+            "Ý nghĩa": "Rút gọn dữ liệu cần ký thành một số modulo n",
+        },
+        {
+            "Bước": "Nghịch đảo của s",
+            "Công thức": "w = s^(-1) mod n",
+            "Giá trị": w,
+            "Ý nghĩa": "Chuẩn bị hệ số để kiểm tra chữ ký",
+        },
+        {
+            "Bước": "Hệ số u1",
+            "Công thức": "u1 = h*w mod n",
+            "Giá trị": u1,
+            "Ý nghĩa": "Phần phụ thuộc vào message",
+        },
+        {
+            "Bước": "Hệ số u2",
+            "Công thức": "u2 = r*w mod n",
+            "Giá trị": u2,
+            "Ý nghĩa": "Phần phụ thuộc vào chữ ký",
+        },
+        {
+            "Bước": "Tính điểm kiểm tra",
+            "Công thức": "P = u1*G + u2*Q",
+            "Giá trị": point_to_text(P),
+            "Ý nghĩa": "Kết hợp generator G và public key Q",
+        },
+        {
+            "Bước": "So sánh cuối",
+            "Công thức": "x(P) mod n == r",
+            "Giá trị": f"{x_mod_n} == {r}",
+            "Ý nghĩa": "Nếu đúng thì chữ ký hợp lệ",
+        },
+    ]
+
+    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+    if final_check:
+        st.success("Trace verify hợp lệ: x(P) mod n khớp với r.")
+    else:
+        st.error("Trace verify không hợp lệ: x(P) mod n không khớp với r.")
+
 
 def point_to_text(P) -> str:
     if P is None:
@@ -296,6 +424,62 @@ def safe_mod_inverse(a: int, n: int):
     except ValueError:
         return None
 
+def trace_double_and_add(curve, k: int, P):
+    """Tạo bảng mô phỏng quá trình tính kP bằng double-and-add.
+
+    Hàm này chỉ phục vụ UI giáo dục:
+    - Không thay thế scalar_mul thật.
+    - Không dùng cho production crypto.
+    - Mục tiêu là giúp người học thấy kP được tạo từ cộng điểm và nhân đôi điểm.
+    """
+    if k < 0:
+        raise ValueError("Demo này chỉ minh họa k >= 0.")
+
+    old_add_count = getattr(curve, "add_count", None)
+    old_double_count = getattr(curve, "double_count", None)
+
+    try:
+        result = curve.scalar_mul(0, P)  # điểm vô cực
+        addend = P
+        remaining = k
+        bit_index = 0
+        rows = []
+
+        while remaining > 0:
+            bit = remaining & 1
+
+            result_before = result
+            addend_before = addend
+
+            if bit == 1:
+                result = curve.point_add(result, addend)
+                action = "Bit = 1 nên cộng result + addend"
+            else:
+                action = "Bit = 0 nên giữ nguyên result"
+
+            doubled_addend = curve.point_add(addend, addend)
+
+            rows.append({
+                "Bước": bit_index + 1,
+                "Bit đang xét": f"b{bit_index} = {bit}",
+                "Addend hiện tại": point_to_text(addend_before),
+                "Result trước": point_to_text(result_before),
+                "Thao tác": action,
+                "Result sau": point_to_text(result),
+                "Chuẩn bị vòng sau": f"2 * {point_to_text(addend_before)} = {point_to_text(doubled_addend)}",
+            })
+
+            addend = doubled_addend
+            remaining >>= 1
+            bit_index += 1
+
+        return rows, result
+
+    finally:
+        if old_add_count is not None:
+            curve.add_count = old_add_count
+        if old_double_count is not None:
+            curve.double_count = old_double_count
 
 def validate_nonce(k: int, n: int):
     if not isinstance(k, int):
@@ -946,6 +1130,54 @@ def demo_ecc_toy_curve():
         f"Khóa công khai được tạo ra: Q = {d}G = {point_to_text(Q)}"
     )
 
+    with st.expander("🔎 Xem quá trình double-and-add tạo Q", expanded=False):
+        st.markdown(
+            """
+            Phép nhân điểm `Q = dG` không phải là nhân từng tọa độ của điểm `G` với số `d`.
+
+            Trong ECC, `dG` nghĩa là cộng điểm `G` với chính nó nhiều lần:
+
+            ```text
+            dG = G + G + ... + G
+            ```
+
+            Nhưng nếu cộng lặp từng lần thì rất chậm. Vì vậy ta dùng **double-and-add**:
+            biểu diễn `d` dưới dạng nhị phân, rồi kết hợp hai thao tác:
+
+            - **double**: nhân đôi điểm hiện tại.
+            - **add**: cộng điểm vào kết quả khi bit đang xét bằng 1.
+            """
+        )
+
+        st.code(
+            f"d = {d}\n"
+            f"binary(d) = {bin(d)}\n"
+            f"Q = dG = {d}G",
+            language="text",
+        )
+
+        trace_rows, trace_result = trace_double_and_add(
+            ECDSA_PARAMS.curve,
+            d,
+            ECDSA_PARAMS.G,
+        )
+
+        st.dataframe(pd.DataFrame(trace_rows), use_container_width=True)
+
+        if trace_result == Q:
+            st.success(
+                f"Kết quả cuối cùng của double-and-add khớp với Q: {point_to_text(trace_result)}"
+            )
+        else:
+            st.error(
+                f"Kết quả trace không khớp. Trace = {point_to_text(trace_result)}, Q = {point_to_text(Q)}"
+            )
+
+        st.info(
+            "Ý nghĩa: tính Q từ d là nhanh vì double-and-add dùng số bit của d, "
+            "không cần cộng G lặp lại d lần. Nhưng đi ngược từ Q về d lại là bài toán ECDLP."
+        )
+
     points = get_curve_points(
         ECDSA_PARAMS.curve.p,
         ECDSA_PARAMS.curve.a,
@@ -991,6 +1223,7 @@ def demo_ecc_toy_curve():
         [
             "Khóa bí mật d là một số nguyên được giữ kín.",
             "Khóa công khai Q là một điểm trên đường cong, được tính bằng Q = dG.",
+            "Phép nhân điểm dG được tính hiệu quả bằng double-and-add: kết hợp cộng điểm và nhân đôi điểm.",
             "Tính Q từ d là nhanh, nhưng tìm ngược d từ Q là bài toán ECDLP.",
             "Đây là nền tảng giúp Bitcoin công khai khóa Q mà vẫn không làm lộ khóa bí mật d.",
         ],
@@ -1584,6 +1817,8 @@ def demo_ecdsa_sign_verify():
         ),
     ])
 
+    render_ecdsa_formula_box()
+
     col1, col2 = st.columns(2)
 
     with col1:
@@ -1633,6 +1868,14 @@ def demo_ecdsa_sign_verify():
             f"Kiểm tra với dữ liệu gốc: {valid_original}"
         )
 
+        with st.expander("🧮 Xem các bước kiểm tra chữ ký với số cụ thể", expanded=False):
+            render_ecdsa_verification_trace(
+                ECDSA_PARAMS,
+                Q,
+                msg.encode("utf-8"),
+                (r, s),
+            )
+
         tampered_key = "ecdsa_tampered_message"
 
         if "ecdsa_tampered_message_next" in st.session_state:
@@ -1676,9 +1919,10 @@ def demo_ecdsa_sign_verify():
     render_learning_summary(
         "ECDSA",
         [
-            "Khóa bí mật dùng để tạo chữ ký, còn khóa công khai dùng để kiểm tra chữ ký.",
-            "Người kiểm tra không cần biết khóa bí mật nhưng vẫn xác minh được chữ ký có hợp lệ hay không.",
-            "Chữ ký ECDSA gắn với dữ liệu đã ký; nếu dữ liệu bị sửa, chữ ký thường sẽ không còn hợp lệ.",
+            "Khóa bí mật d dùng để tạo chữ ký, còn khóa công khai Q dùng để kiểm tra chữ ký.",
+            "Chữ ký ECDSA là cặp số (r, s), gắn với dữ liệu đã ký.",
+            "Bước verify kiểm tra quan hệ x(u1G + u2Q) mod n = r, không cần biết private key.",
+            "Nếu dữ liệu bị sửa, giá trị hash thay đổi, làm quan hệ kiểm tra thường không còn đúng.",
             "Trong Bitcoin, dữ liệu được ký không phải là một câu văn, mà là dữ liệu giao dịch cần được ủy quyền.",
         ],
     )
@@ -1962,11 +2206,11 @@ def demo_interactive_bitcoin_transaction_lab():
     render_learning_summary(
         "Phòng lab giao dịch Bitcoin mô phỏng",
         [
-            "Người dùng tự tạo UTXO, tạo giao dịch, ký, kiểm tra và áp dụng giao dịch.",
-            "Node mô phỏng không tin lời Alice/Bob/Mallory; nó chỉ kiểm tra UTXO, mã băm khóa công khai và chữ ký.",
-            "Sửa số tiền hoặc người nhận làm chữ ký không còn khớp dữ liệu giao dịch.",
-            "Khóa sai không mở được UTXO đang khóa bởi Alice.",
-            "Tiêu hai lần bị chặn bởi tập UTXO mô phỏng.",
+            "Chữ ký ECDSA không đứng một mình; trong mô hình này, nó là dữ liệu mở khóa dùng để chứng minh quyền tiêu một UTXO cụ thể.",
+            "Một giao dịch chỉ được chấp nhận khi UTXO được tham chiếu tồn tại, chưa bị tiêu, mã băm khóa công khai khớp điều kiện khóa và chữ ký ECDSA hợp lệ.",
+            "Sửa số tiền hoặc người nhận sau khi ký sẽ làm dữ liệu giao dịch thay đổi, khiến chữ ký cũ không còn hợp lệ.",
+            "Người khác không thể dùng khóa của họ để tiêu UTXO của Alice, vì mã băm khóa công khai không khớp điều kiện khóa của UTXO.",
+            "Double spend bị từ chối vì cùng một UTXO không được tiêu hai lần trong tập UTXO mô phỏng.",
         ],
     )
 
