@@ -1,5 +1,3 @@
-# PROJECT_IMPLEMENTATION_PLAN.md
-
 # Kế hoạch triển khai project ECC/ECDSA trong Bitcoin
 
 ## 1. Mục đích của tài liệu
