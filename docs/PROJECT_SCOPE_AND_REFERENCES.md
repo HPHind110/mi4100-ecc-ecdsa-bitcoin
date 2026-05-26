@@ -1,5 +1,3 @@
-# PROJECT_SCOPE_AND_REFERENCES.md
-
 # Phạm vi dự án và tài liệu tham khảo
 
 ## 1. Mục đích của tài liệu
