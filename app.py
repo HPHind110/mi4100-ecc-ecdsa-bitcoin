@@ -523,6 +523,76 @@ def validate_nonce(k: int, n: int):
         return False, "Nonce k không hợp lệ vì không tồn tại nghịch đảo modulo n."
     return True, ""
 
+def render_ecdsa_signing_trace(params, d: int, message: bytes, k: int, signature: tuple[int, int]) -> None:
+    """Hiển thị các bước tạo chữ ký ECDSA trên toy curve."""
+    r, s = signature
+    n = params.n
+
+    h = hash_message_to_int(message, n)
+    R = params.curve.scalar_mul(k, params.G)
+
+    if R.is_infinity:
+        st.error("Không thể trace ký vì R = kG là điểm vô cực.")
+        return
+
+    r_calc = R.x % n
+    k_inv = safe_mod_inverse(k, n)
+
+    if k_inv is None:
+        st.error("Không thể trace ký vì k không có nghịch đảo modulo n.")
+        return
+
+    h_plus_rd = (h + r_calc * d) % n
+    s_calc = (k_inv * h_plus_rd) % n
+
+    rows = [
+        {
+            "Bước": "Hash dữ liệu",
+            "Công thức": "h = H(m) mod n",
+            "Giá trị": h,
+            "Ý nghĩa": "Rút gọn dữ liệu cần ký thành một số modulo n",
+        },
+        {
+            "Bước": "Tính điểm nonce",
+            "Công thức": "R = kG",
+            "Giá trị": point_to_text(R),
+            "Ý nghĩa": "Nonce k tạo ra điểm R trên đường cong",
+        },
+        {
+            "Bước": "Tính r",
+            "Công thức": "r = x(R) mod n",
+            "Giá trị": r_calc,
+            "Ý nghĩa": "Lấy hoành độ của R rồi rút gọn modulo n",
+        },
+        {
+            "Bước": "Nghịch đảo nonce",
+            "Công thức": "k^(-1) mod n",
+            "Giá trị": k_inv,
+            "Ý nghĩa": "ECDSA cần k có nghịch đảo modulo n",
+        },
+        {
+            "Bước": "Tính phần h + rd",
+            "Công thức": "h + r*d mod n",
+            "Giá trị": h_plus_rd,
+            "Ý nghĩa": "Trộn dữ liệu cần ký, chữ ký r và khóa bí mật d",
+        },
+        {
+            "Bước": "Tính s",
+            "Công thức": "s = k^(-1)(h + r*d) mod n",
+            "Giá trị": s_calc,
+            "Ý nghĩa": "Tạo thành phần thứ hai của chữ ký",
+        },
+    ]
+
+    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+    if r_calc == r and s_calc == s:
+        st.success(f"Trace ký khớp chữ ký đã tạo: r = {r}, s = {s}.")
+    else:
+        st.warning(
+            f"Trace chưa khớp chữ ký đã tạo. Trace ra r = {r_calc}, s = {s_calc}, "
+            f"nhưng chữ ký đang lưu là r = {r}, s = {s}."
+        )
 
 def can_run_reused_nonce_attack(msg1, msg2, h1, h2, r1, s1, r2, s2, n):
     if msg1 == msg2:
@@ -2042,7 +2112,7 @@ def demo_ecdsa_sign_verify():
 
     render_ecdsa_formula_box()
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         d_demo = int(st.number_input(
@@ -2053,6 +2123,18 @@ def demo_ecdsa_sign_verify():
         ))
 
     with col2:
+        k_demo = int(st.number_input(
+            "🎲 Nonce mô phỏng k",
+            min_value=1,
+            max_value=ORDER_N - 1,
+            value=min(3, ORDER_N - 1),
+            help=(
+                "Nonce chỉ dùng một lần khi ký. "
+                "Page 6 sẽ cho thấy dùng lại nonce nguy hiểm như thế nào."
+            ),
+        ))
+
+    with col3:
         Q_demo = ECDSA_PARAMS.curve.scalar_mul(d_demo, ECDSA_PARAMS.G)
         st.info(f"Khóa công khai tương ứng: Q = {point_to_text(Q_demo)}")
 
@@ -2063,24 +2145,53 @@ def demo_ecdsa_sign_verify():
     )
 
     if st.button("🖊️ Tạo chữ ký", use_container_width=True):
-        try:
-            r, s = sign(ECDSA_PARAMS, d_demo, msg_original.encode("utf-8"))
+        ok_nonce, nonce_msg = validate_nonce(k_demo, ECDSA_PARAMS.n)
 
-            st.session_state.sign_demo = {
-                "r": r,
-                "s": s,
-                "Q": Q_demo,
-                "msg": msg_original,
-            }
+        if not ok_nonce:
+            st.warning(nonce_msg)
+        else:
+            try:
+                r, s = sign(
+                    ECDSA_PARAMS,
+                    d_demo,
+                    msg_original.encode("utf-8"),
+                    k=k_demo,
+                )
 
-            st.success(f"Đã tạo chữ ký ECDSA: r = {r}, s = {s}")
+                st.session_state.sign_demo = {
+                    "r": r,
+                    "s": s,
+                    "Q": Q_demo,
+                    "msg": msg_original,
+                    "d": d_demo,
+                    "k": k_demo,
+                }
 
-        except Exception as exc:
-            st.error(f"Lỗi khi ký: {exc}")
+                st.success(f"Đã tạo chữ ký ECDSA: r = {r}, s = {s}")
+
+            except Exception as exc:
+                st.error(f"Lỗi khi ký: {exc}")
 
     if "sign_demo" in st.session_state:
         data = st.session_state.sign_demo
         r, s, Q, msg = data["r"], data["s"], data["Q"], data["msg"]
+        d = data.get("d")
+        k = data.get("k")
+
+        st.divider()
+        st.subheader("🖊️ Quá trình tạo chữ ký")
+
+        if d is not None and k is not None:
+            with st.expander("🖊️ Xem các bước tạo chữ ký với số cụ thể", expanded=True):
+                render_ecdsa_signing_trace(
+                    ECDSA_PARAMS,
+                    d,
+                    msg.encode("utf-8"),
+                    k,
+                    (r, s),
+                )
+        else:
+            st.info("Hãy bấm tạo lại chữ ký để xem trace quá trình ký với nonce k.")
 
         st.divider()
         st.subheader("🔍 Kiểm tra chữ ký")
@@ -2128,11 +2239,41 @@ def demo_ecdsa_sign_verify():
 
         valid_tampered = verify(ECDSA_PARAMS, Q, tampered.encode("utf-8"), (r, s))
 
+        hash_original = hash_message_to_int(msg.encode("utf-8"), ECDSA_PARAMS.n)
+        hash_tampered = hash_message_to_int(tampered.encode("utf-8"), ECDSA_PARAMS.n)
+
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    "Dữ liệu": "Gốc",
+                    "Message": msg,
+                    "h = H(m) mod n": hash_original,
+                    "Verify": valid_original,
+                },
+                {
+                    "Dữ liệu": "Đã sửa",
+                    "Message": tampered,
+                    "h = H(m) mod n": hash_tampered,
+                    "Verify": valid_tampered,
+                },
+            ]),
+            use_container_width=True,
+        )
+
+        with st.expander("🧮 Xem các bước kiểm tra chữ ký với dữ liệu đã sửa", expanded=False):
+            render_ecdsa_verification_trace(
+                ECDSA_PARAMS,
+                Q,
+                tampered.encode("utf-8"),
+                (r, s),
+            )
+
         if valid_tampered:
             st.warning(
                 "Dữ liệu đã sửa vẫn được chấp nhận trong mô phỏng nhỏ. "
-                "Đây là hạn chế của đường cong toy quá nhỏ, làm tăng khả năng trùng giá trị sau khi rút gọn modulo n. "
-                "Bạn có thể bấm nút bên cạnh để app tự tìm một dữ liệu sửa chắc chắn bị từ chối."
+                "Điều này xảy ra vì n quá nhỏ, nên sau khi lấy H(m) mod n và kiểm tra x(P) mod n, "
+                "một số message khác nhau vẫn có thể vô tình thỏa cùng điều kiện verify. "
+                "Trong tham số thật như secp256k1, xác suất này là cực nhỏ."
             )
         else:
             st.error(
@@ -2368,16 +2509,60 @@ def demo_interactive_bitcoin_transaction_lab():
 
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("🔧 Sửa số tiền sau khi ký", use_container_width=True):
-                    tx = copy.deepcopy(lab["signed_tx"])
-                    tx.outputs[0] = TxOutput(
-                        amount=int(tx.outputs[0].amount) + 1,
-                        pubkey_hash=tx.outputs[0].pubkey_hash,
-                    )
-                    lab["signed_tx"] = tx
-                    lab["last_verify_details"] = None
-                    lab_log("Đã sửa số tiền sau khi ký.")
-                    st.rerun()
+                # if st.button("🔧 Sửa số tiền sau khi ký", use_container_width=True):
+                #     tx = copy.deepcopy(lab["signed_tx"])
+                #     tx.outputs[0] = TxOutput(
+                #         amount=int(tx.outputs[0].amount) + 1,
+                #         pubkey_hash=tx.outputs[0].pubkey_hash,
+                #     )
+                #     lab["signed_tx"] = tx
+                #     lab["last_verify_details"] = None
+                #     lab_log("Đã sửa số tiền sau khi ký.")
+                #     st.rerun()
+
+                current_amount = int(lab["signed_tx"].outputs[0].amount)
+
+                input_outpoint = get_input_outpoint(lab["signed_tx"].inputs[0])
+                input_output = find_known_output(input_outpoint)
+
+                if input_output is not None:
+                    input_amount = int(input_output.amount)
+                else:
+                    input_amount = current_amount
+
+                max_tamper_amount = max(input_amount + 20, current_amount + 20, 100)
+                default_tamper_amount = min(current_amount + 1, max_tamper_amount)
+
+                tampered_amount = int(st.number_input(
+                    "🔧 Nhập số tiền mới sau khi ký",
+                    min_value=1,
+                    max_value=max_tamper_amount,
+                    value=default_tamper_amount,
+                    key="tamper_amount_after_sign",
+                    help=(
+                        "Số tiền này sẽ được ghi đè vào output của giao dịch đã ký. "
+                        "Vì chữ ký cũ được tạo trên dữ liệu giao dịch ban đầu, việc đổi số tiền sẽ làm verify thất bại."
+                    ),
+                ))
+
+                if st.button("🔧 Áp dụng số tiền mới", use_container_width=True):
+                    if tampered_amount == current_amount:
+                        st.warning("Số tiền mới đang giống số tiền cũ, nên giao dịch chưa thật sự bị sửa.")
+                    else:
+                        tx = copy.deepcopy(lab["signed_tx"])
+                        tx.outputs[0] = TxOutput(
+                            amount=tampered_amount,
+                            pubkey_hash=tx.outputs[0].pubkey_hash,
+                        )
+
+                        lab["signed_tx"] = tx
+                        lab["last_verify_details"] = None
+
+                        lab_log(
+                            f"Đã sửa số tiền sau khi ký: {current_amount} -> {tampered_amount}."
+                        )
+
+                        st.rerun()
 
                 if st.button("🔧 Đổi người nhận sang Mallory", use_container_width=True):
                     tx = copy.deepcopy(lab["signed_tx"])
