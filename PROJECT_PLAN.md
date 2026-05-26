@@ -1,349 +1,991 @@
-# PROJECT_PLAN: Lộ trình triển khai dự án ECC/ECDSA trong Bitcoin
+# PROJECT_IMPLEMENTATION_PLAN.md
 
-## 1. Mục tiêu học thuật
+# Kế hoạch triển khai project ECC/ECDSA trong Bitcoin
 
-Dự án phục vụ môn **MI4100: Mật mã và độ phức tạp thuật toán** với chủ đề:
+## 1. Mục đích của tài liệu
 
-> **Mật mã đường cong elliptic (ECC) và ứng dụng chữ ký số ECDSA trong Bitcoin**
-
-Mục tiêu không phải là tạo ví Bitcoin hay sản phẩm blockchain. Mục tiêu là xây dựng một phòng lab có khả năng giải thích, mô phỏng và kiểm thử một chuỗi vấn đề mật mã học:
+Tài liệu này mô tả cách triển khai project:
 
 ```text
-Bitcoin cần xác thực quyền chi tiêu
-→ quyền chi tiêu được biểu diễn qua UTXO/spending condition
-→ ECC sinh public key từ private key: Q = dG
-→ ECDLP bảo vệ private key khỏi public key
-→ ECDSA tạo chữ ký số
-→ node mô phỏng dùng chữ ký để kiểm tra quyền tiêu UTXO
-→ lỗi nonce trong ECDSA có thể làm lộ private key
-→ tối ưu verification và công cụ thực tế được đưa vào như phần mở rộng
+Mật mã đường cong elliptic (ECC) và ứng dụng chữ ký số ECDSA trong Bitcoin
 ```
 
-Luận điểm trung tâm cần giữ nhất quán trong toàn bộ repo:
+File này dùng để làm rõ:
 
-> **Bitcoin không dùng ECC/ECDSA để mã hóa giao dịch. Bitcoin dùng ECDSA để chứng minh quyền chi tiêu đối với UTXO.**
+- project được xây theo logic nào;
+- mỗi module trong code phục vụ phần kiến thức nào;
+- app demo đi theo mạch nào;
+- test cần kiểm tra những gì;
+- báo cáo và slide nên bám theo cấu trúc nào.
+
+Tài liệu này không phải báo cáo học thuật hoàn chỉnh. Nó là bản kế hoạch triển khai và bản đồ kiến trúc để từ đó viết báo cáo, làm slide và kiểm thử project.
 
 ---
 
-## 2. Nguyên tắc thiết kế
+## 2. Mục tiêu của project
 
-### 2.1. Bắt đầu từ bài toán Bitcoin, không bắt đầu từ công thức ECC
+Project có ba mục tiêu chính.
 
-Nếu mở đầu bằng công thức đường cong elliptic, người học dễ xem project như một bài toán đại số rời rạc. Nhưng điểm sáng của đề tài nằm ở việc đưa lý thuyết mật mã vào một ứng dụng cụ thể.
+### 2.1. Mục tiêu học thuật
 
-Vì vậy, mạch trình bày phải bắt đầu từ câu hỏi:
-
-```text
-Trong môi trường không có ngân hàng trung gian, làm sao chứng minh ai có quyền tiêu một tài sản số?
-```
-
-Từ đó mới dẫn tới:
-
-- UTXO và spending condition;
-- chữ ký số;
-- ECC và ECDLP;
-- ECDSA;
-- transaction authentication;
-- thám mã và lỗi triển khai.
-
-### 2.2. Phân biệt rõ toy model và Bitcoin thật
-
-Repo dùng mô hình giáo dục kiểu **P2PKH-like**, không triển khai Bitcoin thật. Các thuật ngữ cần dùng nhất quán:
+Giải thích được mạch từ mật mã khóa công khai đến ECDSA trong Bitcoin:
 
 ```text
-mini Bitcoin transaction demo
-P2PKH-like educational model
-toy UTXO set
-demo transaction hash
-```
-
-Không dùng các cụm gây hiểu nhầm:
-
-```text
-real Bitcoin transaction signing
-real Bitcoin Script implementation
-real sighash implementation
-real Bitcoin consensus
-wallet software
-```
-
-### 2.3. Mọi demo phải phục vụ câu chuyện chính
-
-Một module chỉ nên tồn tại nếu nó hỗ trợ ít nhất một mắt xích trong chuỗi:
-
-```text
-ownership → UTXO → ECC → ECDLP → ECDSA → transaction verification → nonce failure → defense/optimization/tooling
-```
-
-Nếu một phần không giúp người học hiểu chuỗi này, cần cân nhắc đưa vào phụ lục hoặc loại bỏ.
-
----
-
-## 3. Lộ trình câu hỏi Q0–Q8/Q9
-
-### Q0. Bitcoin cần giải bài toán gì?
-
-**Mục tiêu:** đặt bài toán gốc.
-
-Bitcoin hoạt động trong môi trường không có cơ sở dữ liệu trung tâm kiểu ngân hàng. Vì vậy, hệ thống cần một cơ chế để mọi node có thể tự kiểm tra:
-
-```text
-Giao dịch này có được tạo bởi người có quyền tiêu UTXO hay không?
-```
-
-**Kết quả mong muốn:** người học hiểu rằng bài toán gốc không phải là “giấu nội dung giao dịch”, mà là “chứng minh quyền chi tiêu”.
-
----
-
-### Q1. Quyền sở hữu trong Bitcoin được biểu diễn thế nào?
-
-Trong Bitcoin thật, quyền sở hữu không phải là username/password. Nó là khả năng thỏa điều kiện chi tiêu của một output chưa bị tiêu.
-
-Trong demo giáo dục:
-
-```text
-UTXO.locking_condition ≈ pubkey_hash
-unlocking_data         ≈ signature + public key
-verification           ≈ hash(public key) matches + ECDSA signature verifies
-```
-
-**Module liên quan:**
-
-- `src/bitcoin_tx.py`
-- trang “Quyền sở hữu trong Bitcoin” trong `app.py`
-- trang “Phòng lab giao dịch Bitcoin mô phỏng” trong `app.py`
-
----
-
-### Q2. Private key sinh public key như thế nào?
-
-ECC được đưa vào sau khi người học hiểu vì sao cần chữ ký.
-
-Quan hệ lõi:
-
-```text
-Q = dG
+Mật mã khóa công khai
+→ ECC
+→ ECDLP
+→ ECDSA
+→ Bitcoin UTXO case study
 ```
 
 Trong đó:
 
-- `d`: private key;
-- `G`: điểm sinh;
-- `Q`: public key;
-- phép nhân `dG`: scalar multiplication trên nhóm điểm elliptic curve.
-
-**Module liên quan:**
-
-- `src/field.py`
-- `src/ecc.py`
-- `src/demo_params.py`
+- ECC cung cấp nền tảng toán học.
+- ECDLP là bài toán khó đứng sau ECC.
+- ECDSA là thuật toán chữ ký số dựa trên ECC.
+- Bitcoin là case study dùng ECDSA để xác thực quyền chi tiêu UTXO.
 
 ---
 
-### Q3. Vì sao biết public key mà không suy ra private key?
+### 2.2. Mục tiêu mô phỏng
 
-Đây là phần nối ECC với độ phức tạp thuật toán.
+Xây dựng một Streamlit app có thể cho người học tự thao tác:
 
-Bài toán:
+- so sánh public-key cryptography;
+- quan sát `Q = dG`;
+- thử tấn công ECDLP trên toy curve;
+- ký và verify ECDSA;
+- mô phỏng transaction kiểu Bitcoin-like;
+- thử sửa transaction, dùng sai key, double spend;
+- thử nonce attack;
+- xem checklist phòng thủ triển khai;
+- đối chiếu với OpenSSL `secp256k1`.
+
+---
+
+### 2.3. Mục tiêu triển khai phần mềm
+
+Repo cần có cấu trúc đủ rõ để phục vụ cả demo và kiểm thử:
 
 ```text
-Given G and Q = dG, find d.
+app.py          → giao diện học tập và mô phỏng tương tác
+src/            → logic toán học và mô hình toy
+tests/          → kiểm thử tự động
+docs/           → hướng dẫn sử dụng và ghi chú kỹ thuật
+README.md       → giới thiệu nhanh project
+PROJECT_PLAN.md → kế hoạch triển khai
 ```
 
-Trên toy curve, có thể minh họa bằng:
-
-- brute force discrete logarithm: `O(n)`;
-- Baby-step Giant-step: `O(√n)` thời gian và `O(√n)` bộ nhớ;
-- Pollard rho: `O(√n)` kỳ vọng, bộ nhớ thấp, nhưng mang tính xác suất và được đánh dấu experimental.
-
-**Kết luận bắt buộc:** các thuật toán này có thể phá toy curve vì `n` rất nhỏ, nhưng không làm giảm an toàn thực tế của secp256k1 trong phạm vi máy tính cổ điển hiện nay.
-
-**Module liên quan:**
-
-- `src/ecdlp_attacks.py` nếu đã tách thuật toán khỏi app;
-- trang ECDLP trong `app.py`.
+Code không hướng tới production crypto. Tất cả phần toy crypto chỉ phục vụ giáo dục.
 
 ---
 
-### Q4. ECDSA ký và xác minh như thế nào?
+## 3. Luận điểm trung tâm
 
-Nội dung cần giải thích:
-
-- private key `d` dùng để ký;
-- public key `Q` dùng để verify;
-- chữ ký ECDSA là cặp `(r, s)`;
-- nonce `k` là giá trị bí mật dùng một lần;
-- verification kiểm tra tính nhất quán qua biểu thức `u1G + u2Q`.
-
-**Demo bắt buộc:**
+Luận điểm cần giữ xuyên suốt project:
 
 ```text
-sign(message, private_key)
-verify(message, signature, public_key) = True
-verify(tampered_message, signature, public_key) = False
+Bitcoin không dùng ECDSA để mã hóa giao dịch.
+Bitcoin dùng ECDSA để chứng minh quyền chi tiêu UTXO.
 ```
 
-**Module liên quan:**
-
-- `src/ecdsa_toy.py`
-- trang ECDSA trong `app.py`
-
----
-
-### Q5. ECDSA đi vào Bitcoin transaction như thế nào?
-
-Đây là lớp kết nối quan trọng nhất của dự án.
-
-Luồng mô phỏng cần có:
-
-1. Alice có một UTXO trong toy UTXO set.
-2. Alice tạo transaction trả Bob.
-3. Transaction được serialize theo định dạng giáo dục, quyết định.
-4. Alice ký dữ liệu transaction bằng private key.
-5. Node mô phỏng kiểm tra:
-   - UTXO có tồn tại không;
-   - UTXO đã bị tiêu chưa;
-   - `hash(public key)` có khớp locking condition không;
-   - chữ ký ECDSA có hợp lệ với transaction không.
-6. Nếu các kiểm tra đều đúng, transaction được áp dụng vào toy UTXO set.
-
-**Ca thất bại bắt buộc:**
-
-- sửa amount sau khi ký;
-- đổi người nhận sau khi ký;
-- dùng public key sai;
-- Mallory ký bằng key khác;
-- double spend;
-- missing UTXO;
-- public-key-hash mismatch.
-
-**Module liên quan:**
-
-- `src/bitcoin_tx.py`
-- `tests/test_bitcoin_tx.py`
-- trang “Phòng lab giao dịch Bitcoin mô phỏng” trong `app.py`
-
----
-
-### Q6. ECDSA có chắc chắn an toàn không?
-
-Không. ECDSA chỉ an toàn khi giả định toán học và yêu cầu triển khai đều được giữ đúng.
-
-Demo trọng tâm:
+Mạch giải thích nên được hiểu như sau:
 
 ```text
-hai chữ ký khác nhau dùng cùng nonce k
-→ khôi phục k
-→ khôi phục private key d
+Người dùng giữ private key d.
+Từ d tạo public key Q = dG.
+Do ECDLP khó, từ Q rất khó suy ra d.
+Người dùng dùng d để ký dữ liệu giao dịch bằng ECDSA.
+Node dùng Q để verify chữ ký.
+Nếu chữ ký hợp lệ và điều kiện khóa UTXO khớp, giao dịch được chấp nhận.
 ```
 
-Thông điệp cần nhấn mạnh:
+Điểm quan trọng:
 
 ```text
-Correct ECDSA is not broken.
-Nonce reuse is an implementation failure.
+An toàn không chỉ đến từ ECDLP.
+An toàn còn phụ thuộc vào nonce k, cách triển khai, constant-time, CSPRNG và thư viện được kiểm chứng.
 ```
-
-**Module liên quan:**
-
-- `src/nonce_attack.py`
-- trang reused nonce attack trong `app.py`
 
 ---
 
-### Q6.5. Nếu nonce reuse nguy hiểm, phòng thủ thế nào?
+## 4. Phạm vi project
 
-Sau tấn công phải có phòng thủ để tránh kết luận lệch.
+### 4.1. Project có làm
+
+Project triển khai hoặc mô phỏng các phần sau:
+
+| Nhóm nội dung | Có trong project | Vai trò |
+|---|---|---|
+| Mật mã khóa công khai | Có | Đặt bối cảnh cho RSA, ElGamal/DH, ECC |
+| ECC toy curve | Có | Minh họa trường hữu hạn, đường cong, cộng điểm, nhân điểm |
+| Public key generation | Có | Minh họa `Q = dG` |
+| ECDLP demo | Có | Minh họa độ khó đi ngược từ `Q` về `d` |
+| ECDSA toy | Có | Minh họa sign/verify |
+| Bitcoin-like UTXO lab | Có | Minh họa ECDSA mở khóa UTXO |
+| Nonce attack | Có | Minh họa lỗi reused/known nonce làm lộ private key |
+| Defense checklist | Có | Minh họa nguyên tắc phòng thủ khi triển khai ECDSA |
+| Shamir's trick | Có | Minh họa tối ưu verification |
+| OpenSSL secp256k1 | Có | Đối chiếu toy demo với công cụ thật |
+
+---
+
+### 4.2. Project không làm
+
+Project không triển khai:
+
+- ví Bitcoin thật;
+- seed phrase;
+- import private key thật;
+- Bitcoin Script đầy đủ;
+- sighash thật;
+- transaction serialization thật của Bitcoin;
+- consensus rules;
+- mempool;
+- mining;
+- network;
+- broadcast transaction;
+- Schnorr signatures;
+- Taproot;
+- MuSig2;
+- crypto library production.
+
+Các demo attack chỉ chạy trên:
+
+```text
+toy curve
+toy key
+local temporary keys
+```
+
+Không được dùng project để thử khóa thật, ví thật hoặc giao dịch thật.
+
+---
+
+## 5. Kiến trúc triển khai tổng thể
+
+Kiến trúc project gồm bốn lớp.
+
+```text
+Lớp 1: Toán học nền tảng
+    field.py
+    ecc.py
+    demo_params.py
+
+Lớp 2: Mật mã toy
+    ecdsa_toy.py
+    shamir.py
+
+Lớp 3: Mô hình ứng dụng Bitcoin-like
+    bitcoin_tx.py
+
+Lớp 4: Giao diện và demo
+    app.py
+```
+
+Ngoài ra có:
+
+```text
+tests/  → kiểm thử tự động
+docs/   → hướng dẫn và phụ lục
+```
+
+---
+
+## 6. Thiết kế module
+
+### 6.1. `src/field.py`
+
+Vai trò:
+
+```text
+Cung cấp số học modulo cho toàn bộ project.
+```
+
+Các chức năng chính nên có:
+
+- tính `gcd`;
+- tìm nghịch đảo modulo;
+- chia modulo;
+- xử lý trường hợp không tồn tại nghịch đảo.
+
+Kiến thức phục vụ:
+
+```text
+Trường hữu hạn F_p
+Phép chia modulo
+Nghịch đảo modulo trong ECDSA
+```
+
+Test cần có:
+
+- nghịch đảo tồn tại;
+- nghịch đảo không tồn tại;
+- chia modulo đúng;
+- lỗi được xử lý rõ.
+
+---
+
+### 6.2. `src/ecc.py`
+
+Vai trò:
+
+```text
+Mô phỏng nhóm điểm trên elliptic curve.
+```
+
+Các chức năng chính:
+
+- biểu diễn điểm `Point`;
+- biểu diễn đường cong `Curve`;
+- kiểm tra điểm nằm trên curve;
+- cộng điểm;
+- nhân đôi điểm;
+- scalar multiplication `kP`;
+- điểm vô cực;
+- bộ đếm phép toán nếu cần cho Shamir's trick.
+
+Kiến thức phục vụ:
+
+```text
+ECC
+Cộng điểm
+Nhân điểm
+Q = dG
+ECDLP
+ECDSA
+```
+
+Test cần có:
+
+- cộng hai điểm;
+- nhân đôi điểm;
+- cộng với điểm vô cực;
+- scalar multiplication;
+- kết quả vẫn nằm trên curve.
+
+---
+
+### 6.3. `src/demo_params.py`
+
+Vai trò:
+
+```text
+Định nghĩa toy curve thống nhất cho toàn bộ demo và test.
+```
+
+File này nên chứa:
+
+- `p`;
+- `a`;
+- `b`;
+- điểm sinh `G`;
+- order mô phỏng `n`;
+- hàm trả về tham số dùng chung.
+
+Lý do cần file riêng:
+
+```text
+Tránh mỗi module tự định nghĩa tham số khác nhau.
+Giúp test và app dùng cùng một curve.
+Giảm lỗi lệch tham số.
+```
+
+---
+
+### 6.4. `src/ecdsa_toy.py`
+
+Vai trò:
+
+```text
+Mô phỏng ECDSA trên toy curve.
+```
+
+Các chức năng chính:
+
+- hash message về số modulo `n`;
+- ký message;
+- verify chữ ký;
+- xử lý các edge-case như `r = 0`, `s = 0`, nonce không có nghịch đảo.
+
+Kiến thức phục vụ:
+
+```text
+ECDSA signing
+ECDSA verification
+Vai trò của nonce k
+Message integrity
+```
+
+Test cần có:
+
+- ký xong verify đúng;
+- sửa message thì verify fail;
+- dùng sai public key thì verify fail;
+- nonce không hợp lệ bị xử lý.
+
+---
+
+### 6.5. `src/bitcoin_tx.py`
+
+Vai trò:
+
+```text
+Mô phỏng transaction và UTXO set kiểu Bitcoin-like.
+```
+
+Các khái niệm cần có:
+
+- `OutPoint`;
+- `TxInput`;
+- `TxOutput`;
+- `Transaction`;
+- `UTXOSet`;
+- public key hash;
+- serialize unsigned transaction;
+- sign transaction input;
+- verify transaction input.
+
+Luồng mô phỏng:
+
+```text
+Alice có UTXO.
+Alice tạo transaction trả Bob.
+Alice ký transaction bằng private key.
+Node kiểm tra UTXO, public key hash và chữ ký.
+Nếu hợp lệ, UTXO cũ bị tiêu và output mới được tạo.
+```
+
+Test cần có:
+
+- transaction hợp lệ được chấp nhận;
+- sửa amount sau khi ký bị từ chối;
+- đổi receiver sau khi ký bị từ chối;
+- Mallory ký bằng key khác bị từ chối;
+- thay public key bị từ chối;
+- double spend bị từ chối;
+- missing UTXO bị từ chối.
+
+---
+
+### 6.6. `src/shamir.py`
+
+Vai trò:
+
+```text
+So sánh cách tính trực tiếp u1G + u2Q với Shamir's trick.
+```
+
+Các chức năng chính:
+
+- `naive_mul_add(curve, u1, G, u2, Q)`;
+- `shamir_mul(curve, u1, G, u2, Q)`.
+
+Mục tiêu:
+
+```text
+Hai cách phải cho cùng kết quả P.
+Shamir's trick có thể giảm số phép toán điểm trong verification.
+```
+
+Test cần có:
+
+- kết quả Shamir bằng kết quả naive;
+- chạy được với nhiều cặp `u1`, `u2`;
+- xử lý các trường hợp nhỏ.
+
+---
+
+### 6.7. `app.py`
+
+Vai trò:
+
+```text
+Giao diện chính để người học thao tác với toàn bộ project.
+```
+
+`app.py` có thể chứa nhiều UI helper, nhưng phần logic toán/mật mã nên ưu tiên nằm trong `src/`.
+
+Nếu `app.py` quá lớn, có thể tách dần:
+
+```text
+src/ecdlp_attacks.py
+src/benchmark_utils.py
+src/openssl_utils.py
+```
+
+Tuy nhiên, không nên tách quá sớm nếu project vẫn đang trong giai đoạn demo môn học. Ưu tiên ổn định luồng demo trước.
+
+---
+
+## 7. Thiết kế các page trong app
+
+### Page 0. Mở đầu
+
+Mục tiêu:
+
+```text
+Đặt bản đồ toàn bộ project.
+```
+
+Nội dung cần có:
+
+- vì sao cần public-key crypto;
+- vì sao ECC đáng học;
+- vì sao Bitcoin được chọn làm case study;
+- roadmap 10 page.
+
+Dụng ý:
+
+```text
+Giúp người xem hiểu project không bắt đầu từ Bitcoin.
+Project bắt đầu từ public-key crypto, rồi đi đến ECC, ECDSA và Bitcoin case study.
+```
+
+---
+
+### Page 1. Từ khóa bí mật đến khóa công khai
+
+Mục tiêu:
+
+```text
+Giải thích vì sao public-key cryptography ra đời.
+```
 
 Nội dung:
 
-- không reuse nonce `k`;
-- dùng nguồn ngẫu nhiên đáng tin cậy nếu ký randomized;
-- dùng deterministic nonce kiểu RFC6979;
-- triển khai constant-time;
-- dùng thư viện trưởng thành;
-- không dùng toy code cho production.
+- symmetric cryptography;
+- bài toán phân phối khóa;
+- public-key cryptography;
+- hybrid cryptosystem;
+- one-way function;
+- trapdoor;
+- hard problems.
 
-**Module/tài liệu liên quan:**
-
-- `docs/rfc6979_nonce_defense.md`
-- trang “Ghi chú phòng thủ nonce” trong `app.py`
-
----
-
-### Q7. Có thể tối ưu verification không?
-
-Verification của ECDSA cần tính:
+Demo tương tác:
 
 ```text
-u1G + u2Q
+Cho N người dùng.
+So sánh số khóa đối xứng cần quản lý với số cặp khóa public-key.
 ```
 
-Shamir's trick giúp tính đồng thời hai scalar multiplications hiệu quả hơn cách naive.
+Dụng ý:
 
-**Vai trò:** bonus thuật toán/độ phức tạp, không phải trọng tâm chính.
-
-**Module liên quan:**
-
-- `src/shamir.py`
-- `tests/test_shamir.py`
-- trang Shamir trong `app.py`
+```text
+Từ vấn đề phân phối khóa dẫn tới public-key crypto.
+Từ public-key crypto dẫn tới RSA, ElGamal/DH và ECC.
+```
 
 ---
 
-### Q8/Q9. Toy demo liên hệ công cụ thật như thế nào?
+### Page 2. RSA, ElGamal/DH và ECC
 
-OpenSSL được dùng để nối toy demo với công cụ mật mã thật.
+Mục tiêu:
 
-Luồng:
+```text
+Đặt ECC vào bản đồ các hệ khóa công khai.
+```
 
-- sinh key secp256k1;
-- trích public key;
+Nội dung:
+
+- RSA;
+- Diffie-Hellman / ElGamal;
+- ECC;
+- DSA-style signatures;
+- ECDSA;
+- benchmark OpenSSL.
+
+Demo tương tác:
+
+```text
+Chạy openssl speed cho RSA/DSA/ECDSA.
+Hiển thị bảng sign/s và verify/s.
+Giải thích trade-off: RSA verify rất nhanh, ECDSA P-256 sign rất nhanh, benchmark không phải bằng chứng an toàn.
+```
+
+Dụng ý:
+
+```text
+Không kết luận ECC luôn nhanh hơn RSA.
+Kết luận đúng là các hệ có trade-off khác nhau.
+ECC đáng học vì hiệu quả, khóa ngắn, nền toán ECDLP và ứng dụng ECDSA.
+```
+
+---
+
+### Page 3. Nền tảng toán học ECC
+
+Mục tiêu:
+
+```text
+Giải thích Q = dG.
+```
+
+Nội dung:
+
+- trường hữu hạn `F_p`;
+- đường cong elliptic;
+- điểm sinh `G`;
+- private key `d`;
+- public key `Q`;
+- scalar multiplication;
+- double-and-add.
+
+Demo tương tác:
+
+```text
+User chọn d.
+App tính Q = dG.
+App trace double-and-add.
+App vẽ đường cong thực để lấy trực giác và vẽ điểm rời rạc trên F_p để đúng bản chất crypto.
+```
+
+Dụng ý:
+
+```text
+Tính xuôi Q = dG là nhanh.
+Chiều ngược Q -> d sẽ là ECDLP ở Page 4.
+```
+
+---
+
+### Page 4. ECDLP
+
+Mục tiêu:
+
+```text
+Cho người học thấy vì sao public key Q không làm lộ private key d.
+```
+
+Nội dung:
+
+- bài toán ECDLP;
+- attacker biết `G`, `Q`, curve;
+- attacker không biết `d`;
+- brute force;
+- Baby-step Giant-step;
+- Pollard rho;
+- toy curve vs curve thật.
+
+Demo tương tác:
+
+```text
+User chọn d.
+App tạo Q.
+Attacker thử tìm d bằng các thuật toán.
+```
+
+Dụng ý:
+
+```text
+Toy curve phá được vì n nhỏ.
+Curve thật an toàn vì n rất lớn.
+```
+
+---
+
+### Page 5. Chữ ký số ECDSA
+
+Mục tiêu:
+
+```text
+Giải thích cách ký và verify bằng ECDSA.
+```
+
+Nội dung:
+
+- key generation `Q = dG`;
+- hash message;
+- nonce `k`;
+- signing formula;
+- verification formula;
+- vai trò của public key.
+
+Demo tương tác:
+
+```text
+User chọn d, k, message.
+App tạo chữ ký (r, s).
+App trace signing.
+App verify message gốc.
+User sửa message để thấy verify fail.
+```
+
+Dụng ý:
+
+```text
+Private key dùng để ký.
+Public key dùng để verify.
+Chữ ký gắn với dữ liệu cụ thể.
+```
+
+---
+
+### Page 6. Bitcoin case study
+
+Mục tiêu:
+
+```text
+Giải thích ECDSA đi vào mô hình Bitcoin-like như thế nào.
+```
+
+Nội dung:
+
+- wallet;
+- UTXO;
+- locking condition;
+- unlocking data;
+- public key hash;
+- signature trong input;
+- node verification;
+- double spend.
+
+Demo tương tác:
+
+```text
+Alice có UTXO.
+Alice tạo transaction trả Bob.
+Alice ký transaction.
+Node verify.
+Apply vào UTXO set.
+Thử sửa amount, đổi receiver, Mallory ký, thay public key, double spend.
+```
+
+Dụng ý:
+
+```text
+ECDSA không bay lơ lửng.
+ECDSA được dùng để mở khóa một UTXO cụ thể trong một transaction cụ thể.
+```
+
+---
+
+### Page 7. Nonce attack
+
+Mục tiêu:
+
+```text
+Chứng minh triển khai sai ECDSA có thể làm lộ private key.
+```
+
+Nội dung:
+
+- reused nonce;
+- known nonce;
+- partial nonce leakage;
+- side-channel;
+- lattice attack ở mức ghi chú.
+
+Demo tương tác:
+
+```text
+User chọn d, k, message.
+App tạo hai chữ ký dùng cùng nonce.
+App khôi phục k và d.
+Hoặc app mô phỏng known nonce attack từ một chữ ký.
+```
+
+Dụng ý:
+
+```text
+Không cần phá ECDLP.
+Chỉ cần nonce sai là ECDSA có thể sụp đổ.
+```
+
+---
+
+### Page 8. Phòng thủ và tối ưu
+
+Mục tiêu:
+
+```text
+Nối lý thuyết ECDSA với secure engineering và optimization.
+```
+
+Tab 1: Phòng thủ triển khai
+
+Nội dung:
+
+- threat model;
+- nonce discipline;
+- RFC6979-style;
+- CSPRNG;
+- constant-time;
+- side-channel;
+- test vector;
+- audit;
+- toy/prototype/production;
+- risk gate/fatal finding.
+
+Demo tương tác:
+
+```text
+User chọn cách sinh nonce, cách triển khai, context sử dụng.
+App đánh giá risk score minh họa.
+App báo lỗi critical nếu có fatal finding.
+```
+
+Tab 2: Shamir's trick
+
+Nội dung:
+
+- ECDSA verification cần tính `P = u1G + u2Q`;
+- cách naive tính riêng `u1G` và `u2Q`;
+- Shamir's trick tính kết hợp;
+- so sánh số phép toán.
+
+Dụng ý:
+
+```text
+Tab 1: làm đúng để an toàn.
+Tab 2: làm khéo để hiệu quả.
+```
+
+---
+
+### Page 9. OpenSSL và kết luận
+
+Mục tiêu:
+
+```text
+Đối chiếu toy demo với công cụ thật và tổng kết project.
+```
+
+Nội dung:
+
+- sinh key `secp256k1`;
 - ký message/file;
-- verify thành công;
-- sửa message/file thì verify thất bại;
-- đo thời gian ký/verify với cảnh báo benchmark chỉ mang tính tham khảo.
+- verify message gốc;
+- sửa message để verify fail;
+- mini benchmark;
+- kết luận toàn bộ project.
 
-**Cảnh báo bắt buộc:** OpenSSL demo không phải full Bitcoin transaction signing.
+Dụng ý:
 
-**Module liên quan:**
-
-- `openssl_demo/`
-- trang OpenSSL trong `app.py`
-
----
-
-## 4. Trạng thái triển khai hiện tại
-
-### 4.1. Đã có
-
-- Toy finite-field arithmetic: `src/field.py`.
-- Toy elliptic curve group: `src/ecc.py`.
-- Shared toy parameters: `src/demo_params.py`.
-- Toy ECDSA sign/verify: `src/ecdsa_toy.py`.
-- Mini Bitcoin transaction/UTXO model: `src/bitcoin_tx.py`.
-- Reused nonce attack: `src/nonce_attack.py`.
-- ECDLP demonstrations: brute force, BSGS, Pollard rho toy-only/experimental.
-- Shamir's trick: `src/shamir.py`.
-- OpenSSL scripts: `openssl_demo/`.
-- Streamlit app theo mạch Q0–Q9: `app.py`.
-- Hướng dẫn sử dụng app: `docs/APP_USAGE_GUIDE.md`.
-- Ghi chú phòng thủ nonce: `docs/rfc6979_nonce_defense.md`.
-
-### 4.2. Cần hoàn thiện tiếp
-
-- Đồng bộ README với trạng thái app mới nhất.
-- Hoàn thiện báo cáo học thuật chính thức.
-- Tạo slide thuyết trình bám theo mạch Q0–Q9.
-- Chạy kiểm thử toàn bộ app thủ công theo các kịch bản chính.
-- Dọn dependency nếu có package không dùng.
-- Nếu thuật toán ECDLP còn nằm trong `app.py`, cân nhắc tách sang `src/ecdlp_attacks.py` để code sạch hơn.
+```text
+Toy demo giúp hiểu toán.
+OpenSSL cho thấy ký/verify tồn tại trong công cụ mật mã thật.
+Nhưng OpenSSL message signing không phải full Bitcoin transaction signing.
+```
 
 ---
 
-## 5. Chiến lược kiểm thử
+## 8. Kế hoạch triển khai theo giai đoạn
 
-### 5.1. Test tự động
+### Giai đoạn 1. Xây nền toán học
+
+Mục tiêu:
+
+```text
+Có đủ field arithmetic và ECC group operations.
+```
+
+Công việc:
+
+- viết `field.py`;
+- viết `ecc.py`;
+- định nghĩa toy curve trong `demo_params.py`;
+- viết test cho modular inverse, point addition, scalar multiplication.
+
+Kết quả đầu ra:
+
+```text
+Có thể tính kG trên toy curve.
+Có thể kiểm tra điểm thuộc curve.
+Có thể dùng chung curve cho toàn bộ project.
+```
+
+---
+
+### Giai đoạn 2. Xây ECDSA toy
+
+Mục tiêu:
+
+```text
+Có thể ký và verify message trên toy curve.
+```
+
+Công việc:
+
+- viết `ecdsa_toy.py`;
+- implement `hash_message_to_int`;
+- implement `sign`;
+- implement `verify`;
+- xử lý edge-case của toy curve;
+- viết test sign/verify.
+
+Kết quả đầu ra:
+
+```text
+sign(message, d) tạo (r, s).
+verify(message, (r, s), Q) trả True.
+Tampered message hoặc wrong key trả False.
+```
+
+---
+
+### Giai đoạn 3. Xây ECDLP demo
+
+Mục tiêu:
+
+```text
+Cho người học thấy chiều Q -> d khó hơn chiều d -> Q.
+```
+
+Công việc:
+
+- implement brute force discrete log;
+- implement Baby-step Giant-step;
+- implement Pollard rho ở mức demo;
+- tạo bảng so sánh độ phức tạp;
+- tích hợp vào Page 4.
+
+Kết quả đầu ra:
+
+```text
+Toy private key có thể được recover.
+Người học hiểu vì sao toy curve không đại diện cho curve thật.
+```
+
+---
+
+### Giai đoạn 4. Xây Bitcoin-like transaction lab
+
+Mục tiêu:
+
+```text
+Mô phỏng ECDSA mở khóa UTXO.
+```
+
+Công việc:
+
+- thiết kế `OutPoint`, `TxInput`, `TxOutput`, `Transaction`;
+- thiết kế `UTXOSet`;
+- tạo public key hash;
+- serialize unsigned transaction theo format giáo dục;
+- ký input;
+- verify input;
+- apply transaction vào UTXO set;
+- viết test các case hợp lệ/thất bại.
+
+Kết quả đầu ra:
+
+```text
+Alice tiêu UTXO hợp lệ được chấp nhận.
+Tamper, wrong key, hash mismatch, double spend bị từ chối.
+```
+
+---
+
+### Giai đoạn 5. Xây nonce attack
+
+Mục tiêu:
+
+```text
+Minh họa lỗi triển khai nonce làm lộ private key.
+```
+
+Công việc:
+
+- reused nonce attack;
+- known nonce attack;
+- partial nonce leakage ở mức ghi chú;
+- xử lý edge-case toy curve;
+- viết test recover `k` và `d`.
+
+Kết quả đầu ra:
+
+```text
+Hai chữ ký dùng cùng k có thể recover k và d.
+Một chữ ký với known k có thể recover d.
+Người học hiểu đây là implementation failure, không phải ECDSA đúng chuẩn bị phá.
+```
+
+---
+
+### Giai đoạn 6. Xây phòng thủ và tối ưu
+
+Mục tiêu:
+
+```text
+Sau attack phải có phần defense và optimization.
+```
+
+Công việc:
+
+- viết checklist phòng thủ triển khai;
+- thêm threat model mini;
+- thêm risk score minh họa;
+- thêm risk gate/fatal finding;
+- giải thích RFC6979-style, CSPRNG, constant-time, side-channel, test vector, audit;
+- implement Shamir's trick;
+- viết test Shamir bằng naive result.
+
+Kết quả đầu ra:
+
+```text
+Page 8 cho thấy secure engineering quan trọng như thế nào.
+Shamir's trick minh họa tối ưu verification, không phải phòng thủ nonce attack.
+```
+
+---
+
+### Giai đoạn 7. Xây OpenSSL lab
+
+Mục tiêu:
+
+```text
+Đối chiếu toy demo với công cụ thật.
+```
+
+Công việc:
+
+- kiểm tra OpenSSL trong PATH;
+- sinh key `secp256k1`;
+- ký message/file;
+- verify message gốc;
+- sửa message và verify fail;
+- mini benchmark;
+- ghi rõ giới hạn của OpenSSL demo.
+
+Kết quả đầu ra:
+
+```text
+Người học thấy ECDSA secp256k1 chạy được bằng công cụ thật.
+Không nhầm với full Bitcoin transaction signing.
+```
+
+---
+
+### Giai đoạn 8. Hoàn thiện tài liệu
+
+Mục tiêu:
+
+```text
+Repo đủ rõ để người khác đọc, chạy, hiểu và thuyết trình.
+```
+
+Công việc:
+
+- viết lại `README.md`;
+- viết `APP_USAGE_GUIDE.md`;
+- viết `ECDSA_NONCE_ATTACK_AND_DEFENSE.md`;
+- viết `PROJECT_SCOPE_AND_REFERENCES.md`;
+- viết/hoàn thiện `PROJECT_PLAN.md`;
+- chuẩn bị báo cáo;
+- chuẩn bị slide.
+
+Kết quả đầu ra:
+
+```text
+Người đọc hiểu project làm gì, không làm gì, chạy thế nào và thuyết trình theo mạch nào.
+```
+
+---
+
+## 9. Chiến lược kiểm thử
+
+### 9.1. Test tự động
 
 Chạy toàn bộ test:
 
@@ -354,134 +996,291 @@ pytest -q
 Nếu `pytest` chưa nằm trong PATH:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q
+python -m pytest -q
 ```
 
-Các nhóm test cần có:
+Nhóm test cần có:
 
 | Nhóm test | Mục tiêu |
 |---|---|
-| `test_field.py` | modular inverse, modular division, lỗi khi không có nghịch đảo |
-| `test_ecc.py` | point addition, point doubling, scalar multiplication, point at infinity |
-| `test_ecdsa.py` | sign/verify, tampered message fail, wrong key fail |
-| `test_bitcoin_tx.py` | valid spend, tampered tx, wrong key, Mallory key, double spend, missing UTXO |
-| `test_nonce_attack.py` | reused nonce recover `k` và `d` |
-| `test_ecdlp_attacks.py` | brute force/BSGS recover toy private key; Pollard rho deterministic nếu có |
-| `test_shamir.py` | Shamir result trùng naive result |
-
-### 5.2. Test thủ công app
-
-Phải chạy ít nhất các kịch bản:
-
-1. **ECDSA message signing:** ký message, sửa message, verify fail.
-2. **Valid transaction:** Alice có UTXO, Alice trả Bob, node accept, apply thành công.
-3. **Tampered transaction:** sửa amount hoặc recipient sau khi ký, node reject.
-4. **Wrong key:** Mallory ký hoặc thay public key, node reject.
-5. **Double spend:** cùng UTXO tiêu lần đầu được, lần hai bị từ chối.
-6. **Reused nonce:** recover được `k` và `d` trên toy curve.
-7. **OpenSSL:** sinh key secp256k1, ký message, sửa message, verify fail.
-
-Không tuyên bố pass nếu chưa chạy thật.
+| Field arithmetic | Modular inverse, modular division, lỗi không có nghịch đảo |
+| ECC | Point addition, point doubling, scalar multiplication, point at infinity |
+| ECDSA | Sign/verify, tampered message fail, wrong key fail |
+| Bitcoin transaction | Valid spend, tampered tx, wrong key, double spend, missing UTXO |
+| Nonce attack | Reused nonce recover `k`, recover `d`; known nonce recover `d` |
+| ECDLP | Brute force/BSGS recover toy private key; Pollard rho nếu ổn định |
+| Shamir | Shamir result trùng naive result |
 
 ---
 
-## 6. Phạm vi an toàn
+### 9.2. Test thủ công app
 
-Dự án không được làm các việc sau:
+Cần chạy thủ công các flow chính:
 
-- tạo ví Bitcoin thật;
-- sinh seed phrase thật;
-- import wallet thật;
-- quét private key;
-- kiểm tra tài sản thật;
-- tương tác mạng Bitcoin;
-- broadcast transaction;
-- triển khai mining, mempool, block validation, PoW;
-- triển khai công cụ tấn công real secp256k1.
+1. Page 1: thay đổi số người dùng và quan sát số khóa.
+2. Page 2: chạy benchmark OpenSSL, đọc sign/s và verify/s.
+3. Page 3: chọn `d`, quan sát `Q = dG`, xem double-and-add.
+4. Page 4: chạy brute force, BSGS, Pollard rho nếu bật.
+5. Page 5: ký message, sửa message, verify fail.
+6. Page 6: Alice trả Bob hợp lệ, node accept.
+7. Page 6: sửa amount hoặc receiver sau khi ký, node reject.
+8. Page 6: Mallory ký hoặc thay public key, node reject.
+9. Page 6: double spend, node reject.
+10. Page 7: reused nonce recover `k` và `d`.
+11. Page 7: known nonce recover `d`.
+12. Page 8: chọn cấu hình nguy hiểm để thấy critical finding.
+13. Page 8: chạy Shamir's trick và so sánh với naive.
+14. Page 9: sinh key OpenSSL, ký message, verify message gốc pass, sửa message fail.
 
-Mọi tấn công chỉ được giới hạn trong:
+Không nên tuyên bố hoàn thành nếu chưa chạy các flow này.
+
+---
+
+## 10. Mapping từ project sang báo cáo
+
+Báo cáo nên đi theo cấu trúc sau.
+
+### Chương 1. Giới thiệu
+
+Nội dung:
+
+- bối cảnh mật mã khóa công khai;
+- vì sao ECC quan trọng;
+- vì sao ECDSA liên quan Bitcoin;
+- phạm vi project.
+
+Liên hệ app:
 
 ```text
-toy curve
-toy key
-local temporary keys
+Page 0, Page 1
 ```
 
 ---
 
-## 7. Hướng mở rộng tương lai
+### Chương 2. Cơ sở lý thuyết
 
-### 7.1. Bổ sung ghi chú Bitcoin hiện đại
+Nội dung:
 
-Có thể thêm `docs/modern_bitcoin_crypto_notes.md` để giải thích ngắn:
+- symmetric vs public-key crypto;
+- RSA, ElGamal/DH, ECC;
+- trường hữu hạn;
+- elliptic curve;
+- scalar multiplication;
+- ECDLP.
 
-- Bitcoin truyền thống dùng ECDSA trên secp256k1;
-- Taproot đưa Schnorr/BIP340 vào bối cảnh hiện đại;
-- MuSig2/BIP327 liên quan multisignature hiện đại;
-- các phần này là bối cảnh mở rộng, không thay thế trọng tâm ECDSA của repo.
-
-### 7.2. Tách thuật toán ECDLP khỏi app
-
-Nếu app tiếp tục phình to, nên đưa các hàm:
+Liên hệ app:
 
 ```text
-brute_force_dlog_demo
-baby_step_giant_step_demo
-pollard_rho_dlog_demo
+Page 1, Page 2, Page 3, Page 4
 ```
 
-vào `src/ecdlp_attacks.py`, còn `app.py` chỉ giữ phần UI.
+---
 
-### 7.3. Viết báo cáo và slide
+### Chương 3. ECDSA
 
-Báo cáo và slide nên bám mạch:
+Nội dung:
+
+- key generation;
+- signing;
+- verification;
+- vai trò nonce;
+- lỗi reused nonce và known nonce.
+
+Liên hệ app:
 
 ```text
-Bitcoin ownership
-→ UTXO spending condition
-→ ECC: Q = dG
-→ ECDLP hardness
-→ ECDSA sign/verify
-→ mini transaction authentication
-→ nonce failure
-→ defense
-→ optimization/tooling
+Page 5, Page 7
 ```
 
-Không nên biến báo cáo thành:
+---
+
+### Chương 4. Bitcoin case study
+
+Nội dung:
+
+- UTXO;
+- locking condition;
+- unlocking data;
+- public key hash;
+- signature trong input;
+- node verification;
+- tampering và double spend.
+
+Liên hệ app:
+
+```text
+Page 6
+```
+
+---
+
+### Chương 5. Triển khai và kiểm thử
+
+Nội dung:
+
+- kiến trúc repo;
+- module `src/`;
+- app Streamlit;
+- test tự động;
+- test thủ công;
+- OpenSSL demo;
+- benchmark;
+- giới hạn của project.
+
+Liên hệ app:
+
+```text
+Page 2, Page 8, Page 9
+```
+
+---
+
+### Chương 6. Kết luận
+
+Nội dung:
+
+- ECC là nền tảng public-key crypto;
+- ECDLP là giả định độ khó;
+- ECDSA là ứng dụng chữ ký số;
+- Bitcoin dùng ECDSA để xác thực quyền chi tiêu;
+- an toàn cần cả toán học và triển khai đúng;
+- giới hạn và hướng mở rộng.
+
+Liên hệ app:
+
+```text
+Page 9
+```
+
+---
+
+## 11. Mapping từ project sang slide
+
+Slide nên ngắn hơn báo cáo. Một cấu trúc phù hợp:
+
+| Slide | Nội dung |
+|---|---|
+| 1 | Tên đề tài, thành viên, môn học |
+| 2 | Vấn đề: vì sao cần public-key crypto và chữ ký số |
+| 3 | Bản đồ project: public-key → ECC → ECDSA → Bitcoin |
+| 4 | ECC: `Q = dG` |
+| 5 | ECDLP: vì sao public key không lộ private key |
+| 6 | ECDSA: signing và verification |
+| 7 | Bitcoin case study: UTXO và quyền chi tiêu |
+| 8 | Transaction lab: valid spend, tamper, wrong key, double spend |
+| 9 | Nonce attack: reused nonce/known nonce |
+| 10 | Phòng thủ: RFC6979-style, CSPRNG, constant-time, side-channel |
+| 11 | Shamir's trick và OpenSSL |
+| 12 | Kết luận và giới hạn |
+
+Slide không nên quá sa vào công thức. Công thức chỉ cần đủ để bảo vệ logic:
+
+```text
+Q = dG
+ECDLP: given G, Q find d
+s = k^(-1)(h + rd) mod n
+P = u1G + u2Q
+```
+
+---
+
+## 12. Tiêu chí hoàn thành project
+
+Project được xem là hoàn thành khi đạt các tiêu chí sau.
+
+### 12.1. Về kiến thức
+
+Người xem trả lời được:
+
+1. Vì sao cần public-key crypto?
+2. ECC khác RSA và ElGamal/DH ở đâu?
+3. `Q = dG` có ý nghĩa gì?
+4. ECDLP bảo vệ private key như thế nào?
+5. ECDSA ký và verify bằng ý tưởng nào?
+6. Bitcoin dùng chữ ký để làm gì?
+7. UTXO là gì?
+8. Vì sao sửa transaction sau khi ký bị từ chối?
+9. Vì sao wrong key không tiêu được UTXO?
+10. Vì sao double spend bị reject?
+11. Vì sao nonce reuse làm lộ private key?
+12. Phòng thủ nonce cần gì?
+13. Shamir's trick tối ưu phần nào?
+14. OpenSSL demo liên hệ toy code với công cụ thật ra sao?
+
+---
+
+### 12.2. Về code
+
+Repo cần:
+
+- chạy được Streamlit app;
+- chạy được test;
+- không dùng key thật;
+- không phụ thuộc mạng Bitcoin;
+- không để secret/generated artifact trong repo;
+- tài liệu đủ rõ để người khác chạy lại.
+
+---
+
+### 12.3. Về báo cáo và slide
+
+Báo cáo và slide cần giữ đúng phạm vi:
+
+```text
+ECC/ECDSA trong Bitcoin
+```
+
+Không lệch sang:
 
 - lịch sử Bitcoin quá dài;
-- giới thiệu blockchain chung chung;
-- thuần công thức ECC;
-- thuần demo attack;
-- so sánh benchmark thiếu kiểm soát.
+- blockchain chung chung;
+- Schnorr/Taproot quá sâu;
+- benchmark overclaim;
+- full Bitcoin transaction signing;
+- tấn công secp256k1 thật.
 
 ---
 
-## 8. Tiêu chí hoàn thành
+## 13. Hướng mở rộng
 
-Project được xem là đạt yêu cầu khi người xem có thể trả lời rõ ràng:
+Các hướng mở rộng có thể nhắc nhưng không cần triển khai:
 
-1. Bitcoin cần chữ ký số để làm gì?
-2. UTXO là gì và tại sao chữ ký gắn với UTXO?
-3. ECC tạo public key từ private key như thế nào?
-4. ECDLP bảo vệ private key ra sao?
-5. ECDSA ký và verify bằng công thức nào ở mức khái niệm?
-6. Node mô phỏng kiểm tra giao dịch theo các bước nào?
-7. Vì sao sửa transaction sau khi ký làm verify fail?
-8. Vì sao dùng sai key không mở được UTXO?
-9. Vì sao double spend bị reject?
-10. Vì sao reused nonce làm lộ private key?
-11. Cần phòng thủ nonce như thế nào?
-12. Shamir's trick tối ưu phần nào?
-13. OpenSSL demo liên hệ toy code với công cụ thật ra sao?
+| Hướng mở rộng | Lý do chỉ nên nhắc |
+|---|---|
+| Schnorr / BIP340 | Quan trọng trong Bitcoin hiện đại nhưng khác ECDSA |
+| Taproot / BIP341 | Liên quan script/spending rules hiện đại, vượt phạm vi demo |
+| MuSig2 / BIP327 | Cần multisignature protocol và nonce coordination |
+| Lattice attack chi tiết | Cần nền toán lattice, dễ lệch khỏi project |
+| Full Bitcoin sighash | Cần transaction serialization và consensus detail |
+| Hardware side-channel | Rất sâu về implementation/security engineering |
 
-Câu kết luận cần hiện rõ trong mọi deliverable:
+Các phần này có thể nằm trong phụ lục hoặc mục hướng phát triển tương lai, không nên đưa vào mạch demo chính.
+
+---
+
+## 14. Kết luận triển khai
+
+Project nên được hiểu là một phòng lab giáo dục có cấu trúc:
+
+```text
+Hiểu vì sao cần public-key crypto.
+Đặt ECC cạnh RSA và ElGamal/DH.
+Hiểu toán ECC qua Q = dG.
+Thấy ECDLP là chiều khó.
+Dùng ECDSA để ký và verify.
+Đưa ECDSA vào Bitcoin UTXO case study.
+Thấy nonce sai làm lộ private key.
+Biết các nguyên tắc phòng thủ triển khai.
+Nhìn một tối ưu verification bằng Shamir's trick.
+Đối chiếu với OpenSSL secp256k1.
+```
+
+Câu kết luận cuối cùng:
 
 ```text
 ECC cung cấp cấu trúc toán học.
 ECDLP cung cấp giả định độ khó.
-ECDSA cung cấp cơ chế chữ ký.
+ECDSA cung cấp cơ chế chữ ký số.
 Bitcoin dùng chữ ký để xác thực quyền chi tiêu UTXO.
 Triển khai sai, đặc biệt là nonce sai, có thể phá hỏng toàn bộ an toàn.
 ```

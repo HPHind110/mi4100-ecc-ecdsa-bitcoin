@@ -2,51 +2,61 @@
 
 Tài liệu này hướng dẫn cách chạy và sử dụng app Streamlit trong file `app.py`.
 
-App này là một **phòng lab giáo dục** cho project MI4100 về:
+App là một **phòng lab giáo dục** cho đề tài:
 
 ```text
-ECC → ECDLP → ECDSA → UTXO → giao dịch Bitcoin mô phỏng → lỗi nonce → phòng thủ → tối ưu → OpenSSL secp256k1
+Mật mã đường cong elliptic (ECC)
+→ ECDLP
+→ chữ ký số ECDSA
+→ Bitcoin như case study dùng ECDSA để chứng minh quyền chi tiêu UTXO
+→ lỗi nonce
+→ phòng thủ triển khai
+→ tối ưu verification
+→ đối chiếu OpenSSL secp256k1
 ```
 
-Mục tiêu chính của app không phải là xây ví Bitcoin thật, mà là giúp người học nhìn thấy **chữ ký số ECDSA được dùng để chứng minh quyền chi tiêu UTXO như thế nào**.
+Luận điểm chính của app:
+
+```text
+ECC là nền tảng.
+ECDLP là bài toán khó.
+ECDSA là ứng dụng chữ ký số.
+Bitcoin là case study thực tế.
+```
+
+App **không phải ví Bitcoin thật**, không tạo khóa thật để dùng ngoài đời, không ký giao dịch Bitcoin thật và không được dùng cho production crypto.
 
 ---
 
 ## 1. App này dùng để làm gì?
 
-App dùng để học và demo mạch sau:
+App dùng để học và trình bày mạch kiến thức sau:
 
 ```text
-Bitcoin không có ngân hàng trung gian
-→ cần cách chứng minh quyền chi tiêu
-→ quyền chi tiêu được biểu diễn bằng UTXO
-→ UTXO bị khóa bởi điều kiện khóa
-→ người muốn tiêu phải đưa dữ liệu mở khóa
-→ private key d tạo public key Q = dG
-→ ECDLP làm cho việc tìm d từ Q trở nên khó
-→ ECDSA dùng d để tạo chữ ký
-→ node dùng public key Q để kiểm tra chữ ký
-→ transaction hợp lệ thì UTXO được tiêu
-→ transaction sai thì bị từ chối
+Mật mã khóa bí mật
+→ bài toán phân phối khóa
+→ mật mã khóa công khai
+→ RSA / ElGamal-DH / ECC
+→ ECC tạo public key bằng Q = dG
+→ ECDLP khiến việc tìm d từ Q trở nên khó
+→ ECDSA dùng private key để ký, public key để verify
+→ Bitcoin dùng ECDSA để mở khóa UTXO
+→ nonce sai có thể làm lộ private key
+→ triển khai thật cần nonce discipline, constant-time, side-channel awareness
+→ Shamir's trick tối ưu bước verify
+→ OpenSSL secp256k1 cho thấy luồng ký/verify bằng công cụ thật
 ```
 
 App phù hợp cho 3 mục tiêu:
 
-1. **Học lý thuyết theo mạch câu chuyện**
+1. **Học lý thuyết theo mạch câu chuyện**  
+   Không bắt đầu ngay bằng công thức khô khốc, mà đi từ câu hỏi: vì sao cần public-key cryptography, vì sao ECC đáng học, rồi mới sang Bitcoin.
 
-   Thay vì bắt đầu ngay bằng công thức elliptic curve, app bắt đầu từ câu hỏi thực tế:
+2. **Chạy demo tương tác**  
+   Người dùng có thể tự chọn số người dùng, private key, nonce, message, thuật toán benchmark, UTXO, người gửi, người nhận, kiểu tấn công nonce, cách phòng thủ và tham số Shamir.
 
-   ```text
-   Trong một hệ thống không có ngân hàng trung gian, làm sao chứng minh ai có quyền tiêu coin?
-   ```
-
-2. **Chạy demo tương tác**
-
-   Người dùng có thể tự chọn private key, nonce, message, UTXO, người gửi, người nhận, số tiền mô phỏng, rồi quan sát app ký, verify, sửa phá và kiểm tra lại.
-
-3. **Dùng làm kịch bản thuyết trình**
-
-   App được chia thành 10 page, đi từ tổng quan đến demo chi tiết. Có thể dùng gần như trực tiếp để trình bày trên lớp.
+3. **Dùng làm kịch bản thuyết trình**  
+   App chia thành 10 page, có intro, thuật ngữ, bảng, chart, trace từng bước và summary cuối page.
 
 ---
 
@@ -55,15 +65,15 @@ App phù hợp cho 3 mục tiêu:
 App **không phải**:
 
 - ví Bitcoin thật;
-- phần mềm sinh private key thật;
+- phần mềm sinh private key thật để lưu tài sản;
 - phần mềm ký giao dịch Bitcoin thật;
 - Bitcoin full node;
 - Bitcoin Script interpreter thật;
 - công cụ broadcast giao dịch lên mạng Bitcoin;
-- công cụ tấn công khóa Bitcoin;
-- phần mềm production crypto.
+- công cụ tấn công khóa Bitcoin thật;
+- thư viện crypto production.
 
-Toàn bộ private key, public key, UTXO, transaction, chữ ký và attack trong app đều là **mô phỏng giáo dục**.
+Toàn bộ khóa, curve nhỏ, UTXO, transaction, chữ ký, benchmark, attack và checklist trong app đều phục vụ mục tiêu **giáo dục**.
 
 Không dùng output của app cho ví thật, tiền thật, khóa thật hoặc giao dịch thật.
 
@@ -73,13 +83,13 @@ Không dùng output của app cho ví thật, tiền thật, khóa thật hoặc
 
 ### 3.1. Tạo môi trường Python
 
-Từ thư mục gốc của repo, chạy:
+Từ thư mục gốc của repo:
 
 ```powershell
 python -m venv .venv
 ```
 
-Kích hoạt môi trường:
+Kích hoạt môi trường trên Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\activate
@@ -108,7 +118,7 @@ plotly
 pytest
 ```
 
-Nếu thiếu thư viện, app sẽ báo lỗi `ModuleNotFoundError`. Khi đó cài lại bằng:
+Nếu gặp lỗi `ModuleNotFoundError`, cài lại:
 
 ```powershell
 pip install -r requirements.txt
@@ -122,7 +132,7 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-Lệnh này chạy các test của project. Nếu test pass, code nền tảng tương đối ổn để chạy demo.
+Lệnh này chạy test của project. Nếu test pass, phần code nền tương đối ổn để chạy demo.
 
 ---
 
@@ -138,7 +148,7 @@ Nếu terminal không nhận lệnh `streamlit`, dùng:
 python -m streamlit run app.py
 ```
 
-Sau khi chạy, Streamlit thường tự mở trình duyệt. Nếu không tự mở, copy đường link hiện trong terminal, thường là:
+Sau khi chạy, Streamlit thường tự mở trình duyệt. Nếu không tự mở, copy link trong terminal, thường là:
 
 ```text
 http://localhost:8501
@@ -146,11 +156,37 @@ http://localhost:8501
 
 ---
 
-## 4. Lưu ý khi dùng app
+## 4. Yêu cầu thêm nếu muốn dùng OpenSSL
 
-### 4.1. Reset trạng thái
+Page 2 và Page 9 có phần dùng OpenSSL.
 
-App dùng `st.session_state`, nên dữ liệu demo có thể được giữ lại giữa các thao tác.
+- Page 2 dùng OpenSSL để benchmark `rsa2048`, `rsa3072`, `dsa2048`, `ecdsap256`, `ecdsap384`.
+- Page 9 dùng OpenSSL để sinh key `secp256k1`, ký message và verify chữ ký.
+
+Muốn dùng đầy đủ hai page này, máy cần có OpenSSL trong `PATH`.
+
+Kiểm tra nhanh:
+
+```powershell
+openssl version
+```
+
+Nếu app báo không tìm thấy OpenSSL, vẫn dùng được các page toy demo khác. Chỉ phần benchmark/OpenSSL lab sẽ không chạy.
+
+Lưu ý quan trọng:
+
+```text
+ecdsap256 trong openssl speed là NIST P-256.
+Nó không phải secp256k1 của Bitcoin.
+```
+
+Page 9 mới là phần dùng `secp256k1` để ký/verify bằng OpenSSL.
+
+---
+
+## 5. Điều hướng và reset trạng thái
+
+App dùng sidebar để chuyển page.
 
 Trong sidebar có nút:
 
@@ -158,111 +194,82 @@ Trong sidebar có nút:
 🔄 Reset toàn bộ trạng thái mô phỏng
 ```
 
-Dùng nút này khi:
+Nút này xóa toàn bộ `st.session_state`, bao gồm:
 
-- app đang giữ chữ ký cũ;
-- UTXO set bị bẩn;
-- transaction đã bị sửa nhiều lần;
-- OpenSSL lab còn file tạm cũ;
-- kết quả không giống kịch bản mong muốn.
+- page hiện tại;
+- benchmark cũ;
+- ECDSA signature đang lưu;
+- transaction lab;
+- OpenSSL lab;
+- file tạm OpenSSL.
 
-Riêng page 5 có thêm nút:
+Dùng reset toàn bộ khi:
+
+- app giữ dữ liệu cũ;
+- page chạy ra kết quả không giống kịch bản;
+- transaction lab bị sửa phá quá nhiều;
+- OpenSSL lab còn key/message/signature cũ;
+- muốn thuyết trình lại từ đầu.
+
+Riêng Page 6 có nút:
 
 ```text
 🧹 Reset phòng lab giao dịch
 ```
 
-Nút này chỉ reset phần transaction lab.
+Nút này chỉ reset transaction lab Bitcoin mô phỏng.
 
 ---
 
-### 4.2. Toy curve khác secp256k1 thật
-
-Các page 2 đến page 8 chủ yếu dùng **đường cong mô phỏng nhỏ**.
-
-Vì đường cong nhỏ nên có một số hiện tượng lạ:
-
-- message bị sửa nhưng đôi khi chữ ký vẫn verify `True`;
-- một số nonce tạo ra chữ ký không hợp lệ;
-- một số phép tính rơi vào edge case;
-- attack có thể bị chặn vì mẫu số không có nghịch đảo modulo.
-
-Đây là hạn chế của toy curve, không phải hành vi bình thường của secp256k1 thật.
-
-Thông điệp cần nhớ:
-
-```text
-Toy curve dùng để học và nhìn rõ phép tính.
-secp256k1 thật dùng tham số rất lớn để đạt độ an toàn thực tế.
-```
-
----
-
-### 4.3. OpenSSL chỉ là bonus
-
-Page 9 dùng OpenSSL và secp256k1 thật để ký một đoạn nội dung/file đơn giản.
-
-Nhưng page 9 **không ký giao dịch Bitcoin thật**.
-
-Nó không có:
-
-- Bitcoin Script;
-- UTXO thật;
-- sighash thật;
-- consensus rule;
-- network;
-- broadcast transaction.
-
-Page 9 chỉ giúp nối ý tưởng từ toy code sang công cụ mật mã thật.
-
----
-
-## 5. Tổng quan 10 page trong app
+## 6. Tổng quan 10 page
 
 | Page | Tên page | Vai trò |
 |---:|---|---|
-| 0 | Bức tranh tổng quan | Đặt toàn bộ thesis pipeline của project |
-| 1 | Quyền sở hữu trong Bitcoin | Giải thích ownership qua UTXO và điều kiện tiêu |
-| 2 | ECC: `Q = dG` | Cho thấy private key sinh public key bằng phép nhân điểm |
-| 3 | ECDLP | Giải thích vì sao biết `Q` khó suy ra `d` |
-| 4 | ECDSA | Demo ký và kiểm tra chữ ký |
-| 5 | Phòng lab giao dịch Bitcoin mô phỏng | Demo trung tâm: ECDSA mở khóa UTXO |
-| 6 | Tấn công ECDSA khi dùng lại nonce | Demo reused nonce, known nonce và note partial leakage |
-| 7 | Phòng thủ nonce | Tóm tắt cách triển khai ECDSA an toàn hơn |
-| 8 | Thủ thuật Shamir | Bonus tối ưu bước verify `u1G + u2Q` |
-| 9 | Bonus: OpenSSL secp256k1 | Đối chiếu toy demo với công cụ thật |
+| 0 | Mở đầu | Đặt bản đồ: public-key crypto → ECC → ECDSA → Bitcoin case study |
+| 1 | Từ khóa bí mật đến khóa công khai | Giải thích key distribution, hybrid cryptosystem, one-way/trapdoor/hard problems |
+| 2 | RSA, ElGamal/DH và ECC | So sánh nền toán và benchmark chạy thật bằng OpenSSL |
+| 3 | Nền tảng toán học ECC | Trường hữu hạn, đường cong elliptic, điểm sinh, `Q = dG`, double-and-add |
+| 4 | ECDLP | Brute force, Baby-step Giant-step, Pollard rho |
+| 5 | Chữ ký số ECDSA | Key generation, signing, verification, nonce `k`, sửa message sau khi ký |
+| 6 | Bitcoin case study | ECDSA mở khóa UTXO mô phỏng, transaction lab, sửa phá, double spend |
+| 7 | Nonce attack | Reused nonce, known nonce, partial nonce leakage |
+| 8 | Phòng thủ và tối ưu | Nonce discipline, RFC6979-style, constant-time, side-channel, Shamir's trick |
+| 9 | OpenSSL và kết luận | OpenSSL secp256k1 thật + tổng kết toàn bộ đề tài |
 
-Nên đi theo thứ tự từ page 0 đến page 9.
+Nên đi theo thứ tự từ Page 0 đến Page 9.
 
-Nếu thời gian thuyết trình ngắn, nên ưu tiên:
+Nếu thời gian thuyết trình ngắn, có thể ưu tiên:
 
 ```text
 Page 0 → Page 1 → Page 2 → Page 3 → Page 4 → Page 5 → Page 6 → Page 7
 ```
 
-Page 8 và page 9 là bonus.
+Page 8 và Page 9 dùng để nâng chất lượng phần triển khai/thực tế.
 
 ---
 
-# 6. Hướng dẫn từng page
+# 7. Hướng dẫn từng page
 
 ---
 
-## Page 0 — Bức tranh tổng quan
+## Page 0 — Mở đầu: Vì sao cần ECC/ECDSA?
 
 ### Mục tiêu
 
-Page 0 trả lời câu hỏi:
+Page 0 trả lời 3 câu hỏi:
 
 ```text
-Bitcoin cần giải bài toán gì trong môi trường không có ngân hàng trung gian?
+Vì sao cần mật mã khóa công khai?
+Vì sao ECC đáng học?
+Vì sao chọn Bitcoin làm case study?
 ```
 
 Luận điểm chính:
 
 ```text
-Bitcoin không dùng ECC/ECDSA để mã hóa giao dịch.
-Bitcoin dùng chữ ký số để xác thực quyền chi tiêu.
+Đề tài này không bắt đầu từ Bitcoin.
+Trọng tâm là ECC và ECDSA trong mật mã khóa công khai.
+Bitcoin là case study thực tế cho ECDSA.
 ```
 
 ### Cách dùng
@@ -274,103 +281,250 @@ Bitcoin dùng chữ ký số để xác thực quyền chi tiêu.
 
 2. Đọc box luận điểm trung tâm.
 
-3. Mở phần dịch thuật ngữ nếu cần:
-   - UTXO;
-   - quyền chi tiêu;
-   - ECDSA;
-   - ECDLP.
+3. Mở phần thuật ngữ nếu cần:
+   - mật mã khóa bí mật;
+   - mật mã khóa công khai;
+   - bài toán khó;
+   - ECC;
+   - ECDLP;
+   - ECDSA.
 
-4. Xem bảng storyline từ bước 0 đến bước 9.
-
-### Ý nghĩa của page này
-
-Page 0 là bản đồ tổng quan. Người học chưa cần hiểu công thức ngay, chỉ cần nắm mạch:
+4. Xem sơ đồ logic:
 
 ```text
-quyền chi tiêu → UTXO → ECC → ECDLP → ECDSA → verify transaction
+Mật mã khóa bí mật
+→ bài toán phân phối khóa
+→ mật mã khóa công khai
+→ RSA / ElGamal-DH / ECC
+→ ECDLP
+→ ECDSA
+→ Bitcoin case study
 ```
+
+5. Xem bảng 3 câu hỏi dẫn dắt.
+
+6. Xem bảng lộ trình 10 page.
 
 ### Câu nên nói khi thuyết trình
 
 ```text
-Project này không xem Bitcoin như một tài sản đầu tư.
-Project này xem Bitcoin như một case study của mật mã khóa công khai:
-làm sao dùng chữ ký số để chứng minh quyền chi tiêu mà không cần lộ private key.
+Bitcoin không phải điểm xuất phát của đề tài.
+Em dùng Bitcoin như một case study để thấy ECDSA giải quyết bài toán chứng minh quyền chi tiêu trong một hệ thống không cần ngân hàng trung gian.
 ```
 
 ---
 
-## Page 1 — Quyền sở hữu trong Bitcoin
+## Page 1 — Từ khóa bí mật đến khóa công khai
 
 ### Mục tiêu
 
 Page 1 trả lời câu hỏi:
 
 ```text
-Quyền sở hữu trong Bitcoin được biểu diễn thế nào?
+Vì sao public-key cryptography ra đời?
 ```
 
-Trong mô hình UTXO, ownership không phải là dòng số dư trong tài khoản ngân hàng.
-
-Nói đúng hơn:
+Ý chính:
 
 ```text
-Ownership ≈ khả năng thỏa điều kiện tiêu của một UTXO cụ thể
+Mật mã khóa bí mật rất nhanh,
+nhưng gặp bài toán phân phối khóa khi số người dùng tăng lên.
 ```
 
-### Các khái niệm chính
+### Kiến thức cần nắm
 
-| Khái niệm | Ý nghĩa |
-|---|---|
-| UTXO | Một output chưa bị tiêu |
-| Locking condition | Điều kiện khóa UTXO |
-| Unlocking data | Dữ liệu dùng để mở khóa UTXO |
-| Public key hash | Mã băm của public key |
-| Signature | Chữ ký chứng minh người ký có private key tương ứng |
+#### Mật mã khóa bí mật
 
-Trong demo, app dùng mô hình giống P2PKH:
+Hai bên dùng chung một khóa để mã hóa/giải mã. Mạnh ở tốc độ, nhưng khó chia sẻ khóa an toàn khi hệ thống có nhiều người.
+
+#### Bài toán phân phối khóa
+
+Nếu có `N` người và mỗi cặp cần một khóa bí mật riêng, số khóa cần quản lý là:
 
 ```text
-UTXO bị khóa bởi public key hash
-→ người tiêu đưa public key + signature
-→ node kiểm tra hash(public key) có khớp không
-→ node kiểm tra chữ ký có hợp lệ không
+N(N - 1) / 2
 ```
+
+Khi `N` lớn, số khóa tăng rất nhanh.
+
+#### Mật mã khóa công khai
+
+Mỗi người có:
+
+```text
+private key: giữ bí mật
+public key : công khai
+```
+
+Số cặp khóa cần quản lý là:
+
+```text
+N
+```
+
+#### Hybrid cryptosystem
+
+Trong thực tế, public-key crypto thường không mã hóa toàn bộ dữ liệu lớn. Mạch thường gặp:
+
+```text
+public-key crypto dùng để trao đổi khóa hoặc xác thực
+symmetric crypto dùng để mã hóa dữ liệu chính
+```
+
+#### One-way / trapdoor / hard problem
+
+- RSA thường gắn với trapdoor one-way function.
+- ECC nên hiểu là quan hệ một chiều khó đảo: biết `d` thì tính `Q = dG` nhanh, nhưng biết `Q` thì tìm `d` rất khó.
 
 ### Cách dùng
 
-1. Đọc bảng các lớp:
-   - UTXO;
-   - điều kiện khóa;
-   - dữ liệu mở khóa;
-   - kiểm tra;
-   - lượt tiêu được chấp nhận.
-
-2. Nhấn mạnh sự khác biệt giữa ví và UTXO set:
-
-```text
-Ví giữ private key.
-UTXO set biểu diễn các khoản còn tiêu được.
-```
+1. Dùng slider chọn số người dùng `N`.
+2. Quan sát 3 metric:
+   - số người dùng;
+   - số khóa đối xứng theo từng cặp;
+   - số cặp khóa công khai.
+3. Xem bảng so sánh hai mô hình.
+4. Xem line chart số khóa tăng theo `N`.
+5. Đọc bảng symmetric / public-key / hybrid.
+6. Đọc bảng RSA / Diffie-Hellman-ElGamal / ECC ở mức bài toán khó.
 
 ### Câu nên nói khi thuyết trình
 
 ```text
-Một UTXO giống như một tờ tiền có ổ khóa.
-Ai muốn tiêu tờ tiền đó phải đưa ra đúng chìa khóa toán học:
-public key đúng và chữ ký đúng.
+Public-key crypto không thay thế hoàn toàn symmetric crypto.
+Nó giải quyết phần bắt tay, trao đổi khóa, xác thực và chữ ký số.
+Trong hệ thật, hai mô hình thường kết hợp theo kiểu hybrid.
 ```
 
 ---
 
-## Page 2 — ECC: từ private key đến public key
+## Page 2 — RSA, ElGamal/DH và ECC
 
 ### Mục tiêu
 
 Page 2 trả lời câu hỏi:
 
 ```text
-Private key tạo public key như thế nào?
+ECC đứng ở đâu trong bản đồ mật mã khóa công khai?
+```
+
+Page này có 3 tab:
+
+| Tab | Vai trò |
+|---|---|
+| Bản đồ public-key systems | So sánh RSA, Diffie-Hellman/ElGamal và ECC |
+| So sánh chữ ký số | So sánh RSA signature, DSA/ElGamal-style và ECDSA |
+| Benchmark chạy thật | Chạy OpenSSL speed để đo sign/verify |
+
+---
+
+### Tab 1 — Bản đồ public-key systems
+
+Các hệ chính:
+
+| Hệ | Public key | Private key | Bài toán khó | Ứng dụng |
+|---|---|---|---|---|
+| RSA | `(n, e)` | `d` | factorization / RSA problem | mã hóa, chữ ký số |
+| Diffie-Hellman / ElGamal | `y = g^x mod p` | `x` | discrete logarithm | trao đổi khóa, mã hóa, chữ ký họ DLP |
+| ECC | `Q = dG` | `d` | ECDLP | ECDH, ECDSA, EdDSA |
+
+Ý quan trọng:
+
+```text
+ECC không phải một thứ nằm ngoài public-key crypto.
+Nó là một cách xây public-key crypto bằng nhóm điểm elliptic curve.
+```
+
+---
+
+### Tab 2 — So sánh chữ ký số
+
+Cần nắm:
+
+| Chữ ký | Nền tảng | Signing | Verification |
+|---|---|---|---|
+| RSA signature | RSA problem | dùng private exponent | dùng public exponent |
+| DSA / ElGamal-style | DLP | dùng nonce `k` | kiểm tra quan hệ discrete log |
+| ECDSA | ECDLP | dùng nonce `k`, điểm `R = kG` | tính `P = u1G + u2Q` |
+
+Ý cần nhấn mạnh:
+
+```text
+ECDSA không từ trên trời rơi xuống.
+Nó là chữ ký kiểu DSA trên nhóm điểm elliptic curve.
+```
+
+---
+
+### Tab 3 — Benchmark chạy thật
+
+Tab này gọi OpenSSL để benchmark:
+
+```text
+rsa2048
+rsa3072
+dsa2048
+ecdsap256
+ecdsap384
+```
+
+Cách dùng:
+
+1. Chọn thuật toán cần benchmark.
+2. Chọn số giây benchmark mỗi thuật toán.
+3. Bấm:
+
+```text
+🚀 Chạy OpenSSL benchmark
+```
+
+4. Xem bảng kết quả.
+5. Xem chart `Sign/s` và `Verify/s`.
+6. Xem phần giải thích kết quả.
+
+### Cách đọc benchmark
+
+Không được kết luận đơn giản:
+
+```text
+ECC luôn nhanh hơn RSA.
+```
+
+Cách hiểu đúng:
+
+```text
+Một thuật toán có thể ký rất nhanh nhưng verify không nhanh nhất.
+Một thuật toán khác có thể verify rất nhanh nhưng ký chậm hơn.
+```
+
+Các kết luận thường thấy:
+
+- RSA verify thường rất nhanh.
+- RSA sign chậm hơn verify rất nhiều.
+- ECDSA P-256 có thể sign rất nhanh.
+- ECDSA P-384 chậm hơn P-256 rõ rệt.
+- Benchmark đo hiệu năng, không chứng minh an toàn.
+- Không so sánh số bit thô giữa RSA và ECC.
+- `ecdsap256` là NIST P-256, không phải secp256k1.
+
+### Câu nên nói khi thuyết trình
+
+```text
+ECC đáng học không phải vì nó thắng RSA ở mọi phép đo.
+Điểm mạnh của ECC là trade-off giữa kích thước khóa, hiệu năng và mức an toàn.
+ECDSA là một ứng dụng chữ ký số quan trọng của trade-off đó.
+```
+
+---
+
+## Page 3 — Nền tảng toán học ECC: Q = dG
+
+### Mục tiêu
+
+Page 3 trả lời câu hỏi:
+
+```text
+ECC tạo public key từ private key như thế nào?
 ```
 
 Công thức trung tâm:
@@ -383,29 +537,30 @@ Trong đó:
 
 | Ký hiệu | Ý nghĩa |
 |---|---|
-| `d` | private key, một số nguyên bí mật |
-| `G` | điểm sinh cố định trên elliptic curve |
-| `Q` | public key, một điểm trên elliptic curve |
-| `dG` | phép nhân điểm, tức cộng `G` với chính nó theo quy tắc elliptic curve |
+| `d` | private key, một số bí mật |
+| `G` | điểm sinh cố định |
+| `Q` | public key, một điểm trên đường cong |
+| `dG` | phép nhân điểm, tức cộng điểm theo quy tắc elliptic curve |
 
 ### Cách dùng
 
 1. Đọc warning về toy curve.
-2. Mở phần thuật ngữ nếu cần.
+2. Mở thuật ngữ nếu cần:
+   - trường hữu hạn `F_p`;
+   - đường cong elliptic;
+   - điểm sinh `G`;
+   - private key `d`;
+   - public key `Q`;
+   - phép nhân điểm;
+   - ECDLP.
 3. Xem phương trình toy curve:
 
 ```text
-y² ≡ x³ + ax + b (mod p)
+y² ≡ x³ + ax + b mod p
 ```
 
-4. Đọc box liên hệ secp256k1:
-
-```text
-Bitcoin dùng dạng y² = x³ + 7 mod p
-```
-
-5. Dùng slider để chọn private key mô phỏng `d`.
-
+4. Đọc box case study nhỏ về secp256k1.
+5. Dùng slider chọn private key `d`.
 6. Quan sát app tính:
 
 ```text
@@ -418,44 +573,38 @@ Q = dG
 🔎 Xem quá trình double-and-add tạo Q
 ```
 
-8. Xem bảng từng bước double-and-add.
-
-9. Chuyển giữa 2 tab trực quan:
-   - trực giác hình học trên số thực;
-   - điểm rời rạc trên trường hữu hạn `F_p`.
+8. Xem bảng trace double-and-add.
+9. Xem hai tab trực quan:
+   - đường cong trên số thực;
+   - điểm rời rạc trên `F_p`.
 
 ### Điểm cần nhấn mạnh
 
-`dG` không phải là nhân từng tọa độ của điểm `G` với số `d`.
+`dG` **không phải** nhân từng tọa độ của `G` với `d`.
 
-Nó là phép nhân vô hướng trong nhóm điểm elliptic curve:
+Nó là phép cộng điểm lặp lại:
 
 ```text
 dG = G + G + ... + G
 ```
 
-Tuy nhiên app không cộng lặp chậm kiểu ngây thơ, mà minh họa double-and-add:
-
-```text
-biểu diễn d dưới dạng nhị phân
-→ dùng thao tác double
-→ dùng thao tác add khi bit bằng 1
-```
+Nhưng thay vì cộng từng lần, ta dùng double-and-add để tính nhanh.
 
 ### Câu nên nói khi thuyết trình
 
 ```text
-Tính xuôi từ d ra Q rất nhanh.
-Nhưng đi ngược từ Q về d chính là ECDLP, và đó là lý do public key có thể công khai.
+Page này cho thấy chiều dễ: từ d tính ra Q.
+Page sau sẽ thử chiều ngược: biết Q rồi tìm lại d.
+Đó chính là ECDLP.
 ```
 
 ---
 
-## Page 3 — ECDLP: vì sao public key không làm lộ private key?
+## Page 4 — ECDLP: vì sao Q không làm lộ d?
 
 ### Mục tiêu
 
-Page 3 trả lời câu hỏi:
+Page 4 trả lời câu hỏi:
 
 ```text
 Nếu attacker biết G và Q = dG, có tìm lại được d không?
@@ -467,82 +616,53 @@ Nếu attacker biết G và Q = dG, có tìm lại được d không?
 Given G and Q = dG, find d.
 ```
 
-### Các kiểu tấn công trong page 3
+### Cách dùng
 
-Page 3 cho attacker thử tìm `d` bằng 3 cách trên toy curve:
+1. Chọn private key bí mật mô phỏng `d`.
+2. App tính public key `Q = dG`.
+3. Xem bảng attacker biết gì:
+   - đường cong;
+   - điểm sinh `G`;
+   - public key `Q`;
+   - không biết private key `d`.
+4. Chọn thuật toán hiển thị:
+   - brute force luôn có;
+   - Baby-step Giant-step tùy chọn;
+   - Pollard rho tùy chọn.
+5. Xem bảng so sánh kết quả.
+6. Mở tab chi tiết từng thuật toán.
+
+### Ba thuật toán trong page
 
 | Thuật toán | Ý tưởng | Độ phức tạp |
 |---|---|---|
-| Brute force | Thử từng `k` đến khi `kG = Q` | `O(n)` thời gian |
-| Baby-step Giant-step | Chia `d = i*m + j`, cho hai phía gặp nhau | `O(√n)` thời gian, `O(√n)` bộ nhớ |
+| Brute force | Thử từng `k`, kiểm tra `kG = Q` | `O(n)` thời gian |
+| Baby-step Giant-step | Viết `d = i*m + j`, cho hai phía gặp nhau | `O(√n)` thời gian, `O(√n)` bộ nhớ |
 | Pollard rho | Random-walk tìm collision | `O(√n)` kỳ vọng, ít bộ nhớ |
 
-### Cách dùng brute force
+### Lưu ý về Pollard rho
 
-1. Chọn private key mô phỏng `d`.
-2. App tính public key `Q = dG`.
-3. Xem bảng brute force:
-   - `k thử`;
-   - `kG`;
-   - có trùng với `Q` không.
+Pollard rho có tính xác suất. Trên toy curve nhỏ, có thể gặp collision suy biến hoặc chưa tìm được kết quả trong số bước giới hạn.
 
-Khi bảng xuất hiện dòng `kG = Q`, app tìm được `d`.
-
-### Cách dùng Baby-step Giant-step
-
-1. Tick:
-
-```text
-Hiện thêm Baby-step Giant-step
-```
-
-2. Xem bảng so sánh nhanh.
-3. Vào tab Baby-step Giant-step.
-4. Quan sát:
-   - bảng baby steps `jG`;
-   - bảng giant steps `Q - i(mG)`;
-   - giá trị `i`, `j` khi hai phía gặp nhau.
-
-Ý tưởng:
-
-```text
-d = i*m + j
-Q = dG = i(mG) + jG
-Q - i(mG) = jG
-```
-
-### Cách dùng Pollard rho
-
-1. Tick:
-
-```text
-Hiện thêm Pollard rho
-```
-
-2. Chọn giới hạn số bước.
-3. Xem bảng tortoise/hare.
-4. Nếu có collision hữu ích, app khôi phục `d`.
-
-Lưu ý: Pollard rho có thể chưa thành công trong một số lần chạy vì đây là demo nhỏ và có tính xác suất.
+Điều đó không làm sai ý tưởng. Đây chỉ là hạn chế của mô phỏng nhỏ.
 
 ### Câu nên nói khi thuyết trình
 
 ```text
-Page này minh họa tấn công trực diện vào toán học nền tảng.
-Với toy curve nhỏ thì phá được.
-Với secp256k1 thật, kể cả thuật toán O(√n) vẫn quá lớn để thực hiện bằng máy tính cổ điển hiện nay.
+Toy curve nhỏ nên ta phá được để nhìn thấy ECDLP.
+Curve thật có order rất lớn, nên brute force hay thuật toán O(√n) vẫn không khả thi trong thực tế.
 ```
 
 ---
 
-## Page 4 — ECDSA: ký và kiểm tra chữ ký
+## Page 5 — Chữ ký số ECDSA
 
 ### Mục tiêu
 
-Page 4 trả lời câu hỏi:
+Page 5 trả lời câu hỏi:
 
 ```text
-ECDSA chứng minh quyền sở hữu private key như thế nào?
+Làm sao chứng minh mình có private key mà không tiết lộ private key?
 ```
 
 Ý tưởng:
@@ -555,8 +675,6 @@ người verify không cần biết d
 
 ### Công thức ký
 
-ECDSA signing dùng:
-
 ```text
 h = H(m) mod n
 R = kG
@@ -564,20 +682,7 @@ r = x(R) mod n
 s = k⁻¹(h + rd) mod n
 ```
 
-Trong đó:
-
-| Ký hiệu | Ý nghĩa |
-|---|---|
-| `m` | dữ liệu cần ký |
-| `h` | hash của dữ liệu sau khi rút gọn modulo `n` |
-| `d` | private key |
-| `k` | nonce dùng một lần |
-| `R` | điểm sinh từ nonce |
-| `(r, s)` | chữ ký ECDSA |
-
 ### Công thức verify
-
-ECDSA verification dùng:
 
 ```text
 w = s⁻¹ mod n
@@ -589,857 +694,514 @@ valid ⇔ x(P) mod n = r
 
 ### Cách dùng
 
-1. Chọn:
-
-```text
-🔑 Khóa bí mật d
-```
-
-2. Chọn:
-
-```text
-🎲 Nonce mô phỏng k
-```
-
-3. Quan sát public key tương ứng:
-
-```text
-Q = dG
-```
-
-4. Nhập dữ liệu cần ký, ví dụ:
-
-```text
-Hello Bitcoin
-```
-
+1. Chọn private key `d`.
+2. Chọn nonce mô phỏng `k`.
+3. Quan sát public key `Q = dG`.
+4. Nhập message cần ký.
 5. Bấm:
 
 ```text
-🖊️ Tạo chữ ký
+🖊️ Tạo chữ ký ECDSA
 ```
 
-6. App tạo chữ ký:
-
-```text
-(r, s)
-```
-
-7. Mở expander:
-
-```text
-🖊️ Xem các bước tạo chữ ký với số cụ thể
-```
-
-8. Xem bảng các bước:
+6. Xem chữ ký `(r, s)`.
+7. Mở phần trace signing để xem từng bước:
    - hash dữ liệu;
    - tính `R = kG`;
    - tính `r`;
-   - tính `k⁻¹`;
+   - tính nghịch đảo `k`;
    - tính `h + rd`;
    - tính `s`.
+8. Verify message gốc bằng public key.
+9. Sửa message sau khi ký.
+10. Verify message đã sửa.
 
-9. Xem phần kiểm tra chữ ký với dữ liệu gốc.
+### Nếu message sửa vẫn verify True
 
-10. Mở expander:
+Vì toy curve có `n` rất nhỏ, đôi khi message khác vẫn vô tình thỏa điều kiện verify.
 
-```text
-🧮 Xem các bước kiểm tra chữ ký với số cụ thể
-```
-
-11. Sửa dữ liệu trong ô:
-
-```text
-🧪 Thử sửa dữ liệu sau khi ký
-```
-
-12. Quan sát verify với dữ liệu đã sửa.
-
-### Nếu dữ liệu đã sửa vẫn verify True
-
-Vì app dùng toy curve rất nhỏ, `n` nhỏ, nên đôi khi message khác nhau vẫn vô tình thỏa điều kiện:
+Khi gặp vậy, bấm:
 
 ```text
-x(P) mod n = r
+🎯 Tìm message sửa chắc chắn bị từ chối
 ```
 
-Đây là edge case của mô phỏng nhỏ.
-
-Khi gặp trường hợp này, bấm:
-
-```text
-🎯 Tạo dữ liệu sửa chắc chắn bị từ chối
-```
-
-App sẽ tự tìm một dữ liệu sửa khác khiến verify trả về `False`.
+Đây là hạn chế của toy curve, không phải hành vi mong muốn trong hệ thật.
 
 ### Câu nên nói khi thuyết trình
 
 ```text
-Chữ ký số gắn với dữ liệu cụ thể.
-Nếu dữ liệu bị sửa sau khi ký, chữ ký cũ thường không còn hợp lệ.
-Trong Bitcoin, dữ liệu được ký không phải một câu văn, mà là dữ liệu giao dịch cần được ủy quyền.
+ECDSA ký dữ liệu cụ thể, không ký một ý định mơ hồ.
+Nếu dữ liệu đổi sau khi ký, chữ ký cũ phải bị từ chối.
+Trong Bitcoin case study, dữ liệu được ký là dữ liệu giao dịch.
 ```
 
 ---
 
-# 7. Page 5 — Phòng lab giao dịch Bitcoin mô phỏng
+## Page 6 — Bitcoin case study: ECDSA mở khóa UTXO
 
-Page 5 là **demo trung tâm** của app.
-
-### Mục tiêu
-
-Page 5 trả lời câu hỏi:
-
-```text
-ECDSA đi vào giao dịch giống Bitcoin như thế nào?
-```
-
-Trong demo, một transaction muốn tiêu UTXO phải vượt qua các điều kiện:
-
-```text
-1. UTXO được tham chiếu có tồn tại
-2. UTXO còn chưa bị tiêu
-3. public key hash khớp điều kiện khóa
-4. chữ ký ECDSA hợp lệ với dữ liệu giao dịch
-```
-
-Nếu tất cả đúng, node mô phỏng chấp nhận transaction.
-
-Nếu một điều kiện sai, node mô phỏng từ chối transaction.
-
----
-
-## 7.1. Cấu trúc page 5
-
-Page 5 có 4 tab:
-
-| Tab | Tên | Vai trò |
-|---:|---|---|
-| 1 | Ví mô phỏng & tập UTXO | Xem ví Alice/Bob/Mallory và tạo UTXO |
-| 2 | Tạo giao dịch | Chọn sender, UTXO input, receiver, amount |
-| 3 | Ký & kiểm tra | Ký transaction và cho node verify |
-| 4 | Sửa phá / tấn công / tiêu hai lần | Sửa transaction sau khi ký, thử Mallory, thử double spend |
-
-Page 5 cũng có selectbox:
-
-```text
-🎬 Kịch bản hướng dẫn
-```
-
-Các kịch bản gồm:
-
-```text
-Kịch bản đúng: Alice trả Bob
-Sửa số tiền sau khi ký
-Mallory cố tiêu UTXO của Alice
-Tiêu cùng một UTXO hai lần
-Chế độ tự do
-```
-
-Khi chọn kịch bản, app hiện checklist gợi ý các bước cần làm.
-
----
-
-## 7.2. Kịch bản 1 — Alice trả Bob thành công
-
-### Mục tiêu
-
-Chứng minh flow hợp lệ:
-
-```text
-Alice có UTXO
-→ Alice tạo transaction trả Bob
-→ Alice ký bằng private key của mình
-→ node verify thành công
-→ UTXO cũ bị tiêu
-→ UTXO mới thuộc về Bob
-```
-
-### Bước 1: Tạo UTXO cho Alice
-
-Vào tab:
-
-```text
-1️⃣ Ví mô phỏng & tập UTXO
-```
-
-Ở phần tạo UTXO:
-
-```text
-Tạo cho: Alice
-Số tiền demo: 10
-```
-
-Bấm:
-
-```text
-➕ Tạo UTXO
-```
-
-Kết quả: bảng UTXO xuất hiện một khoản thuộc về Alice.
-
----
-
-### Bước 2: Tạo transaction Alice → Bob
-
-Vào tab:
-
-```text
-2️⃣ Tạo giao dịch
-```
-
-Chọn:
-
-```text
-Người gửi: Alice
-Chọn UTXO đầu vào: UTXO của Alice
-Người nhận: Bob
-Số tiền demo: 10
-```
-
-Bấm:
-
-```text
-Tạo giao dịch chưa ký
-```
-
-App sẽ hiển thị transaction mô phỏng ở dạng JSON.
-
----
-
-### Bước 3: Ký transaction bằng Alice
-
-Vào tab:
-
-```text
-3️⃣ Ký & kiểm tra
-```
-
-Chọn:
-
-```text
-Người ký: Alice
-```
-
-Bấm:
-
-```text
-✍️ Ký giao dịch đang chọn
-```
-
-Lúc này input của transaction sẽ có:
-
-```text
-chữ ký = (r, s)
-khóa công khai = Q của Alice
-```
-
----
-
-### Bước 4: Node kiểm tra transaction
-
-Bấm:
-
-```text
-🧪 Node kiểm tra giao dịch
-```
-
-Kết quả đúng:
-
-```text
-✅ Node mô phỏng CHẤP NHẬN giao dịch.
-```
-
-Bảng kiểm tra nên có:
-
-| Bước kiểm tra | Kết quả đúng |
-|---|---|
-| UTXO được tham chiếu có tồn tại không | True |
-| UTXO còn chưa bị tiêu không | True |
-| Mã băm khóa công khai có khớp điều kiện khóa không | True |
-| Chữ ký ECDSA có hợp lệ không | True |
-| Kết luận cuối cùng | True |
-
----
-
-### Bước 5: Áp dụng transaction vào UTXO set
-
-Bấm:
-
-```text
-📣 Gửi / áp dụng vào tập UTXO
-```
-
-Kết quả:
-
-```text
-UTXO cũ của Alice bị tiêu
-UTXO mới thuộc về Bob được thêm vào
-```
-
-### Câu nên nói khi thuyết trình
-
-```text
-Đây là mô hình cốt lõi:
-Alice không cần gửi private key cho node.
-Alice chỉ gửi signature + public key.
-Node dùng public key để kiểm tra chữ ký và kiểm tra public key hash có khớp UTXO hay không.
-```
-
----
-
-## 7.3. Kịch bản 2 — Sửa số tiền sau khi ký
-
-### Mục tiêu
-
-Chứng minh chữ ký gắn với dữ liệu transaction.
-
-Nếu transaction đã được ký rồi mà sửa amount, chữ ký cũ phải bị invalid.
-
-### Cách làm
-
-1. Tạo UTXO cho Alice.
-2. Tạo transaction Alice → Bob.
-3. Ký bằng Alice.
-4. Vào tab:
-
-```text
-4️⃣ Sửa phá / tấn công / tiêu hai lần
-```
-
-5. Nhập số tiền mới ở ô:
-
-```text
-🔧 Nhập số tiền mới sau khi ký
-```
-
-Ví dụ transaction ban đầu amount `10`, sửa thành `15`.
-
-6. Bấm:
-
-```text
-🔧 Áp dụng số tiền mới
-```
-
-7. Bấm:
-
-```text
-🧪 Kiểm tra giao dịch đã bị sửa
-```
-
-### Kết quả đúng
-
-Node mô phỏng phải từ chối.
-
-Lý do:
-
-```text
-Chữ ký được tạo trên dữ liệu transaction ban đầu.
-Sau khi đổi amount, dữ liệu transaction thay đổi.
-Chữ ký cũ không còn khớp.
-```
-
-### Câu nên nói khi thuyết trình
-
-```text
-Chữ ký không chỉ chứng minh “Alice đồng ý gửi tiền”.
-Nó gắn với nội dung transaction cụ thể.
-Đổi số tiền sau khi ký làm chữ ký cũ mất giá trị.
-```
-
----
-
-## 7.4. Kịch bản 3 — Đổi người nhận sang Mallory sau khi ký
-
-### Mục tiêu
-
-Chứng minh attacker không thể đổi receiver sau khi transaction đã ký.
-
-### Cách làm
-
-1. Tạo UTXO cho Alice.
-2. Tạo transaction Alice → Bob.
-3. Ký bằng Alice.
-4. Vào tab:
-
-```text
-4️⃣ Sửa phá / tấn công / tiêu hai lần
-```
-
-5. Bấm:
-
-```text
-🔧 Đổi người nhận sang Mallory
-```
-
-6. Bấm:
-
-```text
-🧪 Kiểm tra giao dịch đã bị sửa
-```
-
-### Kết quả đúng
-
-Node mô phỏng từ chối.
-
-Lý do:
-
-```text
-Output đã bị sửa.
-Dữ liệu transaction không còn là dữ liệu Alice đã ký.
-```
-
----
-
-## 7.5. Kịch bản 4 — Mallory cố tiêu UTXO của Alice
-
-### Mục tiêu
-
-Chứng minh không thể ký bằng private key sai để tiêu UTXO của người khác.
-
-### Cách làm kiểu 1: Ký giao dịch nháp bằng Mallory
-
-1. Tạo UTXO cho Alice.
-2. Tạo transaction tiêu UTXO của Alice.
-3. Vào tab:
-
-```text
-3️⃣ Ký & kiểm tra
-```
-
-4. Chọn:
-
-```text
-Người ký: Mallory
-```
-
-5. Bấm:
-
-```text
-✍️ Ký giao dịch đang chọn
-```
-
-6. Bấm:
-
-```text
-🧪 Node kiểm tra giao dịch
-```
-
-### Cách làm kiểu 2: Dùng nút trong tab phá
-
-1. Sau khi có transaction nháp hoặc transaction đã ký, vào tab:
-
-```text
-4️⃣ Sửa phá / tấn công / tiêu hai lần
-```
-
-2. Bấm:
-
-```text
-🦹 Ký giao dịch nháp bằng Mallory
-```
-
-3. Kiểm tra lại bằng node mô phỏng.
-
-### Kết quả đúng
-
-Node từ chối.
-
-Lý do:
-
-```text
-UTXO của Alice bị khóa bởi hash public key của Alice.
-Mallory ký bằng private key khác.
-Public key/hash của Mallory không khớp locking condition của UTXO Alice.
-```
-
----
-
-## 7.6. Kịch bản 5 — Thay public key mở khóa bằng của Mallory
-
-### Mục tiêu
-
-Chứng minh chữ ký và public key không thể bị thay tùy tiện.
-
-### Cách làm
-
-1. Tạo UTXO cho Alice.
-2. Tạo transaction Alice → Bob.
-3. Ký bằng Alice.
-4. Vào tab:
-
-```text
-4️⃣ Sửa phá / tấn công / tiêu hai lần
-```
-
-5. Bấm:
-
-```text
-🦹 Thay khóa công khai mở khóa bằng của Mallory
-```
-
-6. Bấm:
-
-```text
-🧪 Kiểm tra giao dịch đã bị sửa
-```
-
-### Kết quả đúng
-
-Node từ chối.
-
-Có hai lý do trực giác:
-
-```text
-public key hash không khớp locking condition của UTXO Alice
-hoặc chữ ký không còn kiểm tra đúng với public key đã bị thay
-```
-
----
-
-## 7.7. Kịch bản 6 — Tiêu cùng một UTXO hai lần
-
-### Mục tiêu
-
-Chứng minh vai trò của UTXO set trong chống double-spend.
-
-### Cách làm
-
-1. Tạo UTXO cho Alice.
-2. Tạo transaction Alice → Bob.
-3. Ký bằng Alice.
-4. Vào tab:
-
-```text
-4️⃣ Sửa phá / tấn công / tiêu hai lần
-```
-
-5. Bấm:
-
-```text
-♻️ Thử tiêu hai lần giao dịch hiện tại
-```
-
-### Kết quả đúng
-
-```text
-Lần đầu: được chấp nhận
-Lần hai: bị từ chối
-```
-
-Lý do:
-
-```text
-Lần đầu transaction tiêu UTXO thành công.
-Sau đó UTXO bị đánh dấu là đã tiêu.
-Lần hai dùng lại cùng UTXO nên node từ chối.
-```
-
-### Nếu kết quả không như mong muốn
-
-Bấm:
-
-```text
-🧹 Reset phòng lab giao dịch
-```
-
-Rồi làm lại từ đầu.
-
----
-
-# 8. Page 6 — Tấn công ECDSA khi dùng lại nonce
+Page 6 là demo trung tâm về Bitcoin case study.
 
 ### Mục tiêu
 
 Page 6 trả lời câu hỏi:
 
 ```text
-ECDSA có chắc chắn an toàn không?
+ECDSA đi vào Bitcoin như thế nào?
 ```
 
-Câu trả lời đúng là:
+Trong mô hình giống P2PKH:
 
 ```text
-ECDSA an toàn nếu toán học đúng và triển khai đúng.
-Nhưng nếu nonce k bị dùng sai, private key có thể bị lộ.
+UTXO bị khóa bởi public key hash
+người tiêu cung cấp public key + ECDSA signature
+node kiểm tra public key hash và chữ ký
 ```
 
-Page 6 không phá ECDLP. Nó minh họa lỗi implementation.
+### Điều kiện để transaction được chấp nhận
+
+Một giao dịch được chấp nhận khi:
+
+```text
+1. UTXO được tham chiếu có tồn tại.
+2. UTXO còn chưa bị tiêu.
+3. Public key hash khớp locking condition.
+4. Chữ ký ECDSA hợp lệ với dữ liệu giao dịch.
+```
+
+Nếu một điều kiện sai, node mô phỏng từ chối giao dịch.
 
 ---
 
-## 8.1. Các kiểu tấn công trong page 6
+### Cấu trúc Page 6
 
-Page 6 có 3 mode:
+Page 6 có 4 tab:
+
+| Tab | Vai trò |
+|---|---|
+| 1️⃣ Ví mô phỏng & tập UTXO | Xem ví Alice/Bob/Mallory, tạo UTXO demo, reset lab |
+| 2️⃣ Tạo giao dịch | Chọn sender, UTXO input, receiver, amount |
+| 3️⃣ Ký & kiểm tra | Ký transaction, node verify, gửi/apply vào UTXO set |
+| 4️⃣ Sửa phá / tấn công / tiêu hai lần | Mallory ký sai, sửa amount, đổi receiver, thay public key, double spend |
+
+Page 6 có selectbox:
 
 ```text
-Reused nonce: dùng lại k cho hai chữ ký
-Known nonce: nonce k bị lộ trong một chữ ký
-Partial nonce leakage: ghi chú lý thuyết
+🎬 Kịch bản hướng dẫn
 ```
 
----
-
-## 8.2. Reused nonce attack
-
-### Ý tưởng
-
-Nếu hai message khác nhau dùng cùng nonce `k`, ta có:
+Các kịch bản:
 
 ```text
-s1 = k⁻¹(h1 + r d) mod n
-s2 = k⁻¹(h2 + r d) mod n
+Kịch bản đúng: Alice trả Bob
+Sửa số tiền sau khi ký
+Đổi người nhận sang Mallory sau khi ký
+Mallory cố tiêu UTXO của Alice
+Thay public key mở khóa bằng của Mallory
+Tiêu cùng một UTXO hai lần
+Chế độ tự do
 ```
 
-Lấy hiệu:
+Khi chọn kịch bản, app hiện bảng:
 
 ```text
-s1 - s2 = k⁻¹(h1 - h2) mod n
-```
-
-Suy ra:
-
-```text
-k' = (h1 - h2)(s1 - s2)⁻¹ mod n
-```
-
-Sau khi có `k`, suy ra private key:
-
-```text
-d' = (s1 k' - h1)r⁻¹ mod n
-```
-
-### Cách dùng
-
-1. Chọn private key mô phỏng:
-
-```text
-🔑 Khóa bí mật d
-```
-
-2. Chọn nonce:
-
-```text
-🎲 Nonce k
-```
-
-3. Nhập hai thông điệp khác nhau:
-
-```text
-Thông điệp 1
-Thông điệp 2
-```
-
-4. Chọn mode:
-
-```text
-Reused nonce: dùng lại k cho hai chữ ký
-```
-
-5. Bấm:
-
-```text
-⚡ Chạy mô phỏng tấn công
-```
-
-6. Xem bảng hai chữ ký dùng cùng nonce.
-7. Xem bảng khôi phục `k` và `d`.
-
-### Kết quả đúng
-
-Nếu không gặp edge case, app báo:
-
-```text
-🎯 Tấn công thành công: đã khôi phục nonce và khóa bí mật.
+Tab cần vào
+Thao tác
+Kết quả mong đợi
+Kết luận cần rút ra
 ```
 
 ---
 
-## 8.3. Known nonce attack
+### Kịch bản 1 — Alice trả Bob thành công
 
-### Ý tưởng
-
-Nếu attacker biết nonce `k` của **một chữ ký**, private key cũng có thể bị khôi phục.
-
-Từ công thức:
+Mục tiêu:
 
 ```text
-s = k⁻¹(h + r d) mod n
+Alice có UTXO
+→ Alice tạo transaction trả Bob
+→ Alice ký bằng private key của Alice
+→ node verify thành công
+→ UTXO cũ của Alice bị tiêu
+→ UTXO mới của Bob xuất hiện
 ```
 
-Suy ra:
+Các bước:
+
+1. Tab 1: tạo UTXO cho Alice, ví dụ amount = 10.
+2. Tab 2: chọn sender Alice, chọn UTXO của Alice, receiver Bob, amount = 10.
+3. Tab 3: chọn người ký Alice, bấm ký giao dịch.
+4. Tab 3: bấm node kiểm tra giao dịch.
+5. Tab 3: bấm gửi / áp dụng vào tập UTXO.
+
+Kết quả đúng:
 
 ```text
-d' = (s k - h)r⁻¹ mod n
-```
-
-### Cách dùng
-
-1. Chọn `d`.
-2. Chọn `k`.
-3. Nhập thông điệp 1.
-4. Chọn mode:
-
-```text
-Known nonce: nonce k bị lộ trong một chữ ký
-```
-
-5. Bấm:
-
-```text
-⚡ Chạy mô phỏng tấn công
-```
-
-6. Xem bảng chữ ký có nonce bị lộ.
-7. Xem bảng khôi phục private key.
-
-### Kết quả đúng
-
-Nếu không gặp edge case, app báo:
-
-```text
-🎯 Tấn công thành công: chỉ cần biết nonce k của một chữ ký là khôi phục được private key.
+Node mô phỏng CHẤP NHẬN giao dịch.
+UTXO cũ bị tiêu.
+UTXO mới thuộc về Bob.
 ```
 
 ---
 
-## 8.4. Partial nonce leakage
+### Kịch bản 2 — Sửa số tiền sau khi ký
 
-### Ý tưởng
-
-Partial nonce leakage là trường hợp nonce không bị lộ hoàn toàn, nhưng bị rò một phần qua nhiều chữ ký.
-
-Ví dụ:
+Mục tiêu:
 
 ```text
-rò vài bit của k
-random generator bị lệch
-side-channel làm lộ thông tin về k
+Cho thấy chữ ký gắn với dữ liệu transaction cụ thể.
+Sửa amount sau khi ký làm chữ ký cũ mất hiệu lực.
 ```
 
-Trong thực tế, dạng này có thể dẫn tới các tấn công nâng cao như lattice attack.
+Các bước:
 
-### Cách dùng
+1. Tạo UTXO cho Alice.
+2. Tạo transaction Alice → Bob.
+3. Ký bằng Alice.
+4. Tab 4: nhập số tiền mới sau khi ký.
+5. Bấm áp dụng số tiền mới.
+6. Bấm kiểm tra giao dịch đã bị sửa.
 
-1. Chọn mode:
+Kết quả đúng:
 
 ```text
-Partial nonce leakage: ghi chú lý thuyết
+Node từ chối giao dịch.
 ```
-
-2. Bấm:
-
-```text
-⚡ Chạy mô phỏng tấn công
-```
-
-3. App hiển thị bảng so sánh:
-   - reused nonce;
-   - known nonce;
-   - partial nonce leakage.
-
-### Vì sao app không demo lattice attack?
-
-Vì lattice attack là chủ đề nâng cao, dễ làm loãng project.
-
-Project này tập trung vào:
-
-```text
-ECC/ECDSA trong Bitcoin
-```
-
-nên page 6 chỉ cần demo reused nonce và known nonce là đủ.
 
 ---
 
-## 8.5. Nếu app báo lỗi nonce
+### Kịch bản 3 — Đổi người nhận sang Mallory sau khi ký
 
-Một số lỗi có thể xuất hiện:
-
-```text
-Provided k has no modular inverse mod n
-```
-
-hoặc:
+Mục tiêu:
 
 ```text
-Không tạo được chữ ký với k = ...
+Attacker không thể đổi receiver sau khi transaction đã được ký.
 ```
 
-Điều cần hiểu:
+Các bước:
+
+1. Tạo UTXO cho Alice.
+2. Tạo transaction Alice → Bob.
+3. Ký bằng Alice.
+4. Tab 4: bấm đổi người nhận sang Mallory.
+5. Bấm kiểm tra giao dịch đã bị sửa.
+
+Kết quả đúng:
 
 ```text
-Lỗi này liên quan đến nonce k hoặc edge case của toy curve.
-Nó không phải do private key d.
+Node từ chối giao dịch.
 ```
 
-Trong toy curve nhỏ, một số giá trị có thể làm chữ ký rơi vào trường hợp không hợp lệ.
+Lý do: dữ liệu transaction thay đổi, chữ ký cũ không còn khớp.
 
-App có cơ chế tự thử tìm nonce hợp lệ khác. Nếu vẫn lỗi:
+---
 
-- đổi `k`;
-- đổi message;
-- bấm reset app;
-- restart Streamlit nếu session bị bẩn.
+### Kịch bản 4 — Mallory cố tiêu UTXO của Alice
+
+Mục tiêu:
+
+```text
+Mallory không thể dùng private key của mình để tiêu UTXO bị khóa bởi public key hash của Alice.
+```
+
+Các bước:
+
+1. Tạo UTXO cho Alice.
+2. Tạo transaction tiêu UTXO của Alice.
+3. Tab 3: chọn người ký Mallory.
+4. Bấm ký giao dịch.
+5. Bấm node kiểm tra giao dịch.
+
+Kết quả đúng:
+
+```text
+Node từ chối giao dịch.
+```
+
+Lý do: Mallory ký được bằng khóa của Mallory, nhưng public key hash của Mallory không khớp locking condition của UTXO Alice.
+
+---
+
+### Kịch bản 5 — Thay public key mở khóa bằng của Mallory
+
+Mục tiêu:
+
+```text
+Không thể thay public key trong unlocking data một cách tùy tiện.
+```
+
+Các bước:
+
+1. Tạo UTXO cho Alice.
+2. Tạo transaction Alice → Bob.
+3. Ký bằng Alice.
+4. Tab 4: bấm thay khóa công khai mở khóa bằng của Mallory.
+5. Bấm kiểm tra giao dịch đã bị sửa.
+
+Kết quả đúng:
+
+```text
+Node từ chối giao dịch.
+```
+
+Lý do: unlocking data không còn khớp locking condition của UTXO Alice.
+
+---
+
+### Kịch bản 6 — Tiêu cùng một UTXO hai lần
+
+Mục tiêu:
+
+```text
+Cho thấy vai trò của UTXO set trong chống double spend.
+```
+
+Các bước:
+
+1. Tạo UTXO cho Alice.
+2. Tạo transaction Alice → Bob.
+3. Ký bằng Alice.
+4. Tab 4: bấm thử tiêu hai lần giao dịch hiện tại.
+
+Kết quả đúng:
+
+```text
+Lần đầu được chấp nhận.
+Lần hai bị từ chối.
+```
+
+Lý do: sau lần tiêu đầu, UTXO không còn ở trạng thái unspent.
 
 ### Câu nên nói khi thuyết trình
 
 ```text
-ECDLP khó không cứu được mình nếu ECDSA bị triển khai sai.
-Không cần phá elliptic curve; chỉ cần nonce bị dùng sai là private key có thể bay màu.
+Bitcoin case study cho thấy ECDSA không đứng riêng lẻ.
+Nó nằm trong cơ chế mở khóa UTXO: public key phải khớp public key hash, và chữ ký phải hợp lệ với dữ liệu transaction.
 ```
 
 ---
 
-# 9. Page 7 — Phòng thủ nonce trong ECDSA
+## Page 7 — Nonce attack: khi ECDSA triển khai sai
 
 ### Mục tiêu
 
 Page 7 trả lời câu hỏi:
 
 ```text
-Nếu nonce reuse nguy hiểm, phòng thủ thế nào?
+ECDLP khó có đủ để bảo vệ private key không?
 ```
 
-Luận điểm chính:
+Câu trả lời:
 
 ```text
-ECDSA chỉ an toàn khi toán học đúng và implementation đúng.
+Không đủ.
+Nếu ECDSA triển khai sai nonce k, attacker có thể khôi phục private key mà không cần giải ECDLP.
 ```
 
-### Nội dung chính
+Page này có 3 mode:
 
-Page 7 có bảng các cách phòng thủ:
-
-| Cách phòng thủ | Ý nghĩa |
+| Mode | Ý nghĩa |
 |---|---|
-| Không bao giờ dùng lại nonce `k` | Mỗi chữ ký phải có nonce riêng |
-| Dùng nguồn ngẫu nhiên đáng tin cậy | RNG yếu có thể làm nonce đoán được |
-| Sinh nonce xác định kiểu RFC6979 | Giảm phụ thuộc vào random bên ngoài |
-| Triển khai constant-time | Giảm rò rỉ qua thời gian chạy/kênh phụ |
-| Dùng thư viện mật mã đã kiểm chứng | Không tự viết crypto production từ demo |
+| Reused nonce | Dùng lại cùng `k` cho hai chữ ký |
+| Known nonce | Nonce `k` của một chữ ký bị lộ |
+| Partial nonce leakage | Nonce chỉ rò một phần, chỉ ghi chú lý thuyết |
 
-### Câu nên nói khi thuyết trình
+### Cách dùng chung
+
+1. Chọn private key nạn nhân `d`.
+2. Chọn nonce mô phỏng `k`.
+3. Nhập message 1.
+4. Nhập message 2 nếu chạy reused nonce.
+5. Chọn kiểu tấn công.
+6. Bấm:
 
 ```text
-Mật mã không chỉ là công thức.
-Mật mã an toàn cần cả công thức đúng, random đúng, code đúng và thư viện đúng.
+⚡ Chạy mô phỏng tấn công
 ```
 
 ---
 
-# 10. Page 8 — Thủ thuật Shamir
+### Mode 1 — Reused nonce
+
+Nếu cùng một nonce `k` dùng để ký hai message khác nhau:
+
+```text
+s1 = k⁻¹(h1 + rd) mod n
+s2 = k⁻¹(h2 + rd) mod n
+```
+
+Lấy hiệu hai phương trình:
+
+```text
+s1 - s2 = k⁻¹(h1 - h2) mod n
+```
+
+Khôi phục nonce:
+
+```text
+k' = (h1 - h2)(s1 - s2)⁻¹ mod n
+```
+
+Sau đó khôi phục private key:
+
+```text
+d' = (s1k' - h1)r⁻¹ mod n
+```
+
+Kết quả đúng:
+
+```text
+k khôi phục = k ban đầu
+d khôi phục = d ban đầu
+```
+
+---
+
+### Mode 2 — Known nonce
+
+Với một chữ ký:
+
+```text
+s = k⁻¹(h + rd) mod n
+```
+
+Nếu attacker biết `k`, suy ra:
+
+```text
+d' = (sk - h)r⁻¹ mod n
+```
+
+Chỉ một chữ ký cũng có thể đủ để khôi phục private key.
+
+---
+
+### Mode 3 — Partial nonce leakage
+
+Partial leakage nghĩa là nonce `k` không lộ toàn bộ, nhưng rò một phần qua nhiều chữ ký.
+
+Nguồn rò rỉ có thể là:
+
+```text
+RNG yếu hoặc bị bias
+timing side-channel
+cache / power side-channel
+implementation bug
+```
+
+App không demo lattice attack vì đó là chủ đề cryptanalysis nâng cao.
+
+Thông điệp cần nhớ:
+
+```text
+Không chỉ reuse nonce mới nguy hiểm.
+Nonce bị rò một phần qua nhiều chữ ký cũng có thể nguy hiểm.
+```
+
+### Câu nên nói khi thuyết trình
+
+```text
+Page 4 cho thấy phá ECDLP là khó.
+Page 7 cho thấy một đường khác: không cần phá ECDLP, chỉ cần ECDSA dùng nonce sai là private key có thể bay màu.
+```
+
+---
+
+## Page 8 — Phòng thủ và tối ưu
 
 ### Mục tiêu
 
-Page 8 trả lời câu hỏi:
+Page 8 trả lời hai câu hỏi:
 
 ```text
-Có thể tối ưu bước kiểm tra chữ ký ECDSA không?
+Muốn dùng ECDSA thật thì cần kỷ luật triển khai gì?
+Có tối ưu nào cho bước verify không?
 ```
 
-Trong ECDSA verify, cần tính:
+Page này có 2 tab:
+
+| Tab | Vai trò |
+|---|---|
+| Phòng thủ triển khai | Mini security review tương tác cho ECDSA implementation |
+| Shamir's trick | Demo tối ưu phép tính `u1G + u2Q` trong ECDSA verification |
+
+---
+
+### Tab 1 — Phòng thủ triển khai
+
+Tab này nối trực tiếp với Page 7.
+
+Page 7 nói:
+
+```text
+nonce sai → private key bị lộ
+```
+
+Page 8 hỏi tiếp:
+
+```text
+Làm sao thiết kế/triển khai để tránh lỗi kiểu đó?
+```
+
+#### Threat model mini
+
+App nhắc 3 nhóm mối đe dọa:
+
+| Mối đe dọa | Liên quan | Phòng thủ |
+|---|---|---|
+| Attacker thấy nhiều chữ ký | reused nonce, biased nonce, partial leakage | RFC6979/CSPRNG tốt, không reuse nonce |
+| Attacker đo thời gian chạy | timing side-channel | constant-time implementation |
+| Attacker khai thác lỗi tự viết crypto | sai edge-case, sai validate, sai randomness | thư viện trưởng thành, test vector, audit |
+
+#### Checklist rủi ro triển khai
+
+Người dùng chọn:
+
+```text
+Cách sinh nonce k
+Có cơ chế đảm bảo không reuse nonce không
+Có test vector / kiểm thử chữ ký không
+Có constant-time không
+Có xem xét side-channel không
+Dùng thư viện trưởng thành hay tự viết
+Mục tiêu sử dụng: toy / prototype / production
+Có audit độc lập không
+```
+
+App tính:
+
+```text
+Điểm rủi ro minh họa
+Đánh giá: thấp / trung bình / cao / cực cao / critical
+Lỗi chí mạng cần sửa ngay
+Việc nên sửa trước
+Lý do app đánh giá như vậy
+```
+
+#### Cách hiểu risk score
+
+Điểm rủi ro trong app là **minh họa**, không phải security audit thật.
+
+Nó giúp người học hiểu:
+
+- nonce cố định hoặc reuse nonce là lỗi chí mạng;
+- random thường hoặc seed yếu rất nguy hiểm;
+- production cần tiêu chuẩn cao hơn toy demo;
+- tự viết crypto production là rủi ro cực cao;
+- không constant-time có thể rò thông tin qua timing;
+- thiếu test vector dễ làm implementation sai mà không biết;
+- production nên có audit/review độc lập.
+
+App có cơ chế **fatal finding**. Một số lỗi không chỉ cộng điểm mà bị báo critical ngay, ví dụ:
+
+```text
+Cố định hoặc có thể reuse nonce
+Random yếu trong production
+Tự viết ECDSA production không audit
+```
+
+### Tab 2 — Shamir's trick
+
+Trong ECDSA verification, cần tính:
 
 ```text
 P = u1G + u2Q
@@ -1450,478 +1212,437 @@ Cách trực tiếp:
 ```text
 tính u1G riêng
 tính u2Q riêng
-rồi cộng lại
+cộng hai điểm lại
 ```
 
-Shamir’s trick tính hai phép nhân điểm đồng thời để giảm số phép toán.
+Shamir's trick xử lý hai phép nhân điểm cùng lúc để giảm số phép toán điểm.
 
-### Cách dùng
+Cách dùng:
 
-1. Nhập `u1`.
-2. Nhập `u2`.
-3. App cố định:
-
-```text
-Q = 5G
-```
-
+1. Chọn private key mô phỏng để tạo `Q = dG`.
+2. Nhập hệ số `u1`.
+3. Nhập hệ số `u2`.
 4. Bấm:
 
 ```text
-📊 Chạy so sánh
+📊 So sánh cách trực tiếp và Shamir's trick
 ```
 
-5. Xem biểu đồ:
+5. Xem bảng kết quả:
+   - kết quả điểm `P`;
    - số phép cộng điểm;
    - số phép nhân đôi điểm;
-   - cách trực tiếp;
-   - cách Shamir.
+   - tổng phép toán đếm được.
+6. Xem biểu đồ so sánh.
 
-6. Xem kết quả hai cách có giống nhau không.
-
-### Ý nghĩa
-
-Page 8 không phải trọng tâm Bitcoin ownership. Đây là phần bonus để cho thấy:
+Điểm quan trọng:
 
 ```text
-crypto thực tế không chỉ có công thức đúng,
-mà còn cần tối ưu thuật toán và hiệu năng.
+Shamir's trick là tối ưu hiệu năng.
+Nó không chống nonce attack.
 ```
 
 ### Câu nên nói khi thuyết trình
 
 ```text
-ECDSA verification có biểu thức u1G + u2Q.
-Shamir's trick giúp tính biểu thức này hiệu quả hơn bằng cách xử lý hai phép nhân điểm cùng lúc.
+Page 8 cho thấy ECDSA không dừng ở công thức.
+Dùng thật cần secure engineering để không lộ khóa, và algorithmic optimization để verify hiệu quả.
 ```
 
 ---
 
-# 11. Page 9 — Bonus: OpenSSL secp256k1
+## Page 9 — OpenSSL secp256k1 và kết luận
 
 ### Mục tiêu
 
-Page 9 trả lời câu hỏi:
+Page 9 có hai vai trò:
 
 ```text
-Toy demo liên hệ công cụ thật thế nào?
+1. Đối chiếu toy demo với công cụ thật OpenSSL secp256k1.
+2. Tổng kết toàn bộ đề tài.
 ```
 
-Toy curve giúp hiểu từng bước. OpenSSL secp256k1 cho thấy việc ký và kiểm tra chữ ký cũng tồn tại trong công cụ mật mã thật.
+Page này không ký giao dịch Bitcoin thật. Nó chỉ ký message/file bằng OpenSSL.
 
-### Điều kiện cần
-
-Máy cần có OpenSSL trong `PATH`.
-
-Kiểm tra bằng:
-
-```powershell
-openssl version
-```
-
-Nếu không có OpenSSL, page 9 sẽ báo:
+Không có:
 
 ```text
-Không tìm thấy OpenSSL trong PATH
+Bitcoin Script
+sighash thật
+transaction serialization thật
+consensus/network
+broadcast transaction
 ```
-
-Khi đó cần cài OpenSSL và thêm vào biến môi trường `PATH`.
 
 ---
 
-## 11.1. Tab 1 — Sinh khóa
+### Cấu trúc Page 9
 
-### Cách dùng
+Page 9 có 5 tab:
 
-1. Vào tab:
+| Tab | Vai trò |
+|---|---|
+| 1️⃣ Sinh key thật | Sinh private/public key secp256k1 bằng OpenSSL |
+| 2️⃣ Ký nội dung | Ký message gốc bằng private key |
+| 3️⃣ Sửa và verify | Dùng chữ ký cũ verify message gốc hoặc message bị sửa |
+| 4️⃣ Mini benchmark | Đo thời gian ký/verify trong lab hiện tại |
+| 5️⃣ Kết luận đề tài | Tổng kết ECC, ECDLP, ECDSA, Bitcoin, nonce, engineering |
 
-```text
-1️⃣ Sinh khóa
-```
+---
 
-2. Bấm:
+### Tab 1 — Sinh key thật
+
+Bấm:
 
 ```text
 🔑 Sinh cặp khóa secp256k1
 ```
 
-3. App tạo:
-   - private key tạm;
-   - public key tạm.
-
-4. Có thể mở expander để xem vị trí file tạm.
-
-### Lưu ý
-
-Các file key nằm trong thư mục tạm của app.
-
-Không commit các file như:
+App dùng OpenSSL để tạo:
 
 ```text
-*.pem
-*.key
-*.bin
+private key
+public key
 ```
 
-lên GitHub.
+Các file nằm trong thư mục tạm của app.
 
 ---
 
-## 11.2. Tab 2 — Ký nội dung gốc
+### Tab 2 — Ký nội dung
 
-### Cách dùng
-
-1. Vào tab:
-
-```text
-2️⃣ Ký nội dung gốc
-```
-
-2. Nhập nội dung, ví dụ:
-
-```text
-Alice trả Bob 1 BTC mô phỏng
-```
-
-3. Bấm:
+1. Nhập nội dung gốc.
+2. Bấm:
 
 ```text
 ✍️ Ký nội dung gốc bằng OpenSSL
 ```
 
-4. App hiển thị phần đầu chữ ký dạng hex.
-
-### Ý nghĩa
-
-Chữ ký này chỉ hợp lệ với đúng nội dung đã ký.
+App tạo chữ ký cho đúng nội dung đó.
 
 ---
 
-## 11.3. Tab 3 — Tự sửa và kiểm tra
+### Tab 3 — Sửa và verify
 
-### Cách dùng
-
-1. Vào tab:
+Có 3 thao tác:
 
 ```text
-3️⃣ Tự sửa và kiểm tra
-```
-
-2. Cột trái là nội dung gốc đã ký.
-3. Cột phải là nội dung đem đi kiểm tra.
-
-Có 3 nút:
-
-```text
-✅ Kiểm tra với nội dung hiện tại
+✅ Verify nội dung hiện tại
 🧪 Tạo bản bị sửa mẫu
-↩️ Khôi phục giống nội dung gốc
+↩️ Khôi phục giống gốc
 ```
 
-### Kịch bản đúng
-
-Nếu nội dung kiểm tra giống nội dung gốc:
+Kết quả đúng:
 
 ```text
-chữ ký được chấp nhận
+Nội dung giống gốc → verify pass
+Nội dung bị sửa    → verify fail
 ```
 
-Nếu sửa nội dung:
+Ý nghĩa:
 
 ```text
-chữ ký bị từ chối
+Chữ ký gắn với dữ liệu cụ thể.
+Sửa dữ liệu sau khi ký làm chữ ký cũ mất hiệu lực.
 ```
 
-### Liên hệ với Bitcoin
-
-Nếu ai đó sửa số tiền hoặc người nhận sau khi transaction đã ký, chữ ký cũ sẽ không còn khớp với dữ liệu giao dịch nữa.
-
-Đây là cùng ý tưởng với page 5, nhưng page 9 dùng OpenSSL và secp256k1 thật để minh họa tính toàn vẹn của chữ ký.
+Liên hệ Page 6: nếu attacker sửa số tiền hoặc người nhận sau khi transaction đã ký, node phải từ chối.
 
 ---
 
-## 11.4. Tab 4 — Đo thời gian
+### Tab 4 — Mini benchmark
 
-### Cách dùng
+Tab này đo nhanh thao tác ký/verify trong OpenSSL lab hiện tại.
 
-1. Vào tab:
+Cách dùng:
 
-```text
-4️⃣ Đo thời gian
-```
-
-2. Chọn số lần chạy thử.
-3. Bấm:
+1. Sinh key ở tab 1.
+2. Ký message ở tab 2.
+3. Chọn số lần chạy thử.
+4. Bấm:
 
 ```text
-📊 Đo thời gian
+📊 Đo thời gian ký/verify
 ```
 
-4. App hiển thị:
-   - thời gian ký trung bình;
-   - thời gian verify trung bình;
-   - số lần ký mỗi giây;
-   - số lần verify mỗi giây;
-   - biểu đồ so sánh.
-
-### Lưu ý
-
-Kết quả phụ thuộc vào:
-
-- máy đang dùng;
-- phiên bản OpenSSL;
-- môi trường chạy;
-- số lần benchmark.
-
-Không dùng benchmark này để kết luận hiệu năng hệ thống thật.
+Lưu ý: đây chỉ là mini benchmark cho lab hiện tại. Muốn so sánh RSA/ECDSA nhiều hệ thì xem Page 2.
 
 ---
 
-# 12. Kịch bản thuyết trình gợi ý
+### Tab 5 — Kết luận đề tài
 
-Nếu có khoảng 10 đến 15 phút, nên đi như sau:
+Các mảnh ghép cần chốt:
+
+| Mảnh ghép | Kết luận |
+|---|---|
+| Public-key cryptography | Ra đời để giải quyết trao đổi khóa, xác thực và chữ ký số |
+| ECC | Nhánh public-key crypto dựa trên nhóm điểm elliptic curve |
+| ECDLP | Bài toán khó: biết `G` và `Q = dG` thì khó tìm lại `d` |
+| ECDSA | Chữ ký số trên ECC: private key ký, public key verify |
+| Bitcoin | Case study dùng ECDSA để chứng minh quyền tiêu UTXO |
+| Nonce attack | ECDLP khó không cứu được nếu nonce bị reuse/lộ/rò |
+| Secure engineering | Cần nonce discipline, CSPRNG/RFC6979-style, constant-time, thư viện trưởng thành |
+| OpenSSL | Đối chiếu toy demo với công cụ thật |
+
+Câu chốt:
 
 ```text
-Page 0: Nêu thesis pipeline
-Page 1: Giải thích UTXO ownership
-Page 2: Demo Q = dG
-Page 3: Demo ECDLP trên toy curve
-Page 4: Demo ECDSA ký/verify message
-Page 5: Demo transaction lab Alice trả Bob
-Page 6: Demo reused nonce attack
-Page 7: Chốt phòng thủ nonce
-```
-
-Nếu còn thời gian:
-
-```text
-Page 8: Shamir's trick
-Page 9: OpenSSL secp256k1
+ECC cung cấp nền tảng khóa công khai hiệu quả dựa trên ECDLP;
+ECDSA biến nền tảng đó thành cơ chế chữ ký số;
+Bitcoin dùng ECDSA như một case study để chứng minh quyền chi tiêu UTXO;
+và an toàn thực tế không chỉ đến từ toán học, mà còn đến từ triển khai đúng.
 ```
 
 ---
 
-## 12.1. Kịch bản demo ngắn nhất
+# 8. Kịch bản thuyết trình gợi ý
 
-Dùng khi thời gian rất ít.
-
-### Bước 1: Page 0
-
-Nói:
+## Bản đầy đủ
 
 ```text
-Bitcoin cần chứng minh quyền chi tiêu, không cần chứng minh danh tính.
+Page 0: Nêu thesis ECC-first, Bitcoin là case study.
+Page 1: Vì sao cần public-key crypto.
+Page 2: Đặt ECC cạnh RSA/ElGamal và benchmark trade-off.
+Page 3: Giải thích Q = dG bằng toy curve.
+Page 4: Minh họa ECDLP bằng brute force/BSGS/Pollard rho.
+Page 5: Giải thích ECDSA sign/verify.
+Page 6: Mô phỏng Bitcoin UTXO case study.
+Page 7: Chứng minh nonce sai làm lộ private key.
+Page 8: Phòng thủ triển khai và Shamir optimization.
+Page 9: OpenSSL secp256k1 + kết luận.
 ```
 
-### Bước 2: Page 2
-
-Chọn `d`, cho thấy:
+## Bản ngắn 10–15 phút
 
 ```text
-Q = dG
+Page 0 → Page 2 → Page 3 → Page 4 → Page 5 → Page 6 → Page 7 → Page 9
 ```
 
-Nói:
+Nếu thiếu thời gian, Page 1 và Page 8 có thể nói nhanh, không demo hết.
+
+## Bản tập trung Bitcoin case study
 
 ```text
-Private key tạo public key.
+Page 0 → Page 3 → Page 5 → Page 6 → Page 7 → Page 9
 ```
 
-### Bước 3: Page 3
+Dùng khi giảng viên quan tâm trực tiếp đến ECDSA trong Bitcoin.
 
-Cho brute force tìm `d` trên toy curve.
+---
 
-Nói:
+# 9. Lỗi thường gặp và cách xử lý
+
+## 9.1. App giữ trạng thái cũ
+
+Dấu hiệu:
+
+- chữ ký cũ vẫn còn;
+- transaction đã bị sửa nhiều lần;
+- UTXO set không như kịch bản;
+- OpenSSL lab dùng message/key cũ.
+
+Cách xử lý:
 
 ```text
-Toy curve nhỏ nên phá được.
-secp256k1 thật thì không.
+Bấm Reset toàn bộ trạng thái mô phỏng ở sidebar.
 ```
 
-### Bước 4: Page 4
-
-Ký `Hello Bitcoin`, sửa message, verify fail.
-
-Nói:
+Hoặc riêng Page 6:
 
 ```text
-Chữ ký gắn với dữ liệu.
-```
-
-### Bước 5: Page 5
-
-Tạo UTXO cho Alice, tạo transaction Alice → Bob, ký, verify.
-
-Nói:
-
-```text
-Đây là cách chữ ký mở khóa UTXO.
-```
-
-### Bước 6: Page 6
-
-Chạy reused nonce attack.
-
-Nói:
-
-```text
-ECDLP khó không cứu được nếu nonce bị dùng lại.
+Bấm Reset phòng lab giao dịch ở tab 1.
 ```
 
 ---
 
-# 13. Các lỗi thường gặp
+## 9.2. OpenSSL không tìm thấy
 
-## 13.1. Không chạy được Streamlit
-
-Lỗi thường gặp:
-
-```text
-streamlit: The term 'streamlit' is not recognized
-```
-
-Cách sửa:
-
-```powershell
-python -m streamlit run app.py
-```
-
-Nếu vẫn lỗi:
-
-```powershell
-pip install streamlit
-```
-
----
-
-## 13.2. Thiếu thư viện
-
-Lỗi:
-
-```text
-ModuleNotFoundError
-```
-
-Cách sửa:
-
-```powershell
-pip install -r requirements.txt
-```
-
----
-
-## 13.3. Page 9 không tìm thấy OpenSSL
-
-Lỗi:
+Dấu hiệu:
 
 ```text
 Không tìm thấy OpenSSL trong PATH
 ```
 
-Cách sửa:
+Cách xử lý:
+
+1. Kiểm tra:
 
 ```powershell
 openssl version
 ```
 
-Nếu terminal cũng không nhận `openssl`, cần cài OpenSSL và thêm vào `PATH`.
+2. Nếu không chạy được, cài OpenSSL và thêm vào `PATH`.
+3. Chạy lại Streamlit.
 
 ---
 
-## 13.4. Message sửa nhưng vẫn verify True ở page 4
+## 9.3. Benchmark không parse được
+
+Có thể do:
+
+- OpenSSL version khác;
+- thuật toán không được hỗ trợ;
+- output format khác;
+- lệnh bị lỗi.
+
+Cách xử lý:
+
+```text
+Mở expander “Xem output thô từ OpenSSL”.
+Bỏ thuật toán gây lỗi, ví dụ dsa2048 nếu máy không hỗ trợ.
+Chạy lại với rsa2048, rsa3072, ecdsap256 trước.
+```
+
+---
+
+## 9.4. Toy curve có kết quả lạ
+
+Dấu hiệu:
+
+- message sửa vẫn verify `True`;
+- nonce nào đó không tạo được chữ ký;
+- attack nonce gặp mẫu số không khả nghịch;
+- Pollard rho chưa thành công.
 
 Nguyên nhân:
 
 ```text
-Toy curve quá nhỏ.
-n nhỏ nên một số message khác nhau có thể vô tình thỏa điều kiện verify.
+Toy curve rất nhỏ, order n nhỏ, nên dễ gặp edge-case.
 ```
 
 Cách xử lý:
 
 ```text
-Bấm "Tạo dữ liệu sửa chắc chắn bị từ chối"
+Đổi message.
+Đổi nonce k.
+Bấm nút tìm message sửa chắc chắn bị từ chối.
+Dùng auto fallback nonce nếu app có báo tự chọn nonce hợp lệ.
 ```
 
-hoặc đổi message khác.
+Thông điệp cần nhớ:
+
+```text
+Toy curve dùng để học.
+Không đại diện cho độ an toàn thật của secp256k1.
+```
 
 ---
 
-## 13.5. Nonce attack báo edge case
+## 9.5. Page 6 không có UTXO để tạo giao dịch
 
-Nguyên nhân có thể là:
+Dấu hiệu:
 
-- hai message giống nhau;
-- hash modulo `n` bị trùng;
-- `s1 - s2` không có nghịch đảo;
-- `r` không có nghịch đảo;
-- toy curve quá nhỏ;
-- session state đang giữ giá trị cũ.
+```text
+Alice/Bob/Mallory chưa có UTXO chưa bị tiêu.
+```
 
 Cách xử lý:
 
-1. đổi message;
-2. đổi nonce `k`;
-3. đổi private key `d`;
-4. bấm reset;
-5. restart Streamlit.
-
----
-
-## 13.6. Giao dịch page 5 bị từ chối dù làm đúng
-
-Kiểm tra các điểm sau:
-
-1. UTXO đã được tạo chưa?
-2. UTXO còn chưa bị tiêu không?
-3. Transaction đã được ký chưa?
-4. Có ký bằng đúng owner không?
-5. Có sửa amount hoặc receiver sau khi ký không?
-6. Có thay public key thành Mallory không?
-7. Có dùng lại transaction đã apply rồi không?
-
-Nếu không chắc, bấm:
+1. Vào Page 6 tab 1.
+2. Chọn người nhận UTXO.
+3. Nhập số tiền demo.
+4. Bấm:
 
 ```text
-🧹 Reset phòng lab giao dịch
+➕ Tạo UTXO
 ```
 
-rồi làm lại kịch bản Alice trả Bob.
+Sau đó quay lại tab 2 để tạo giao dịch.
 
 ---
 
-# 14. Thông điệp chính cần nhớ
+## 9.6. Mallory ký được nhưng node vẫn từ chối
 
-App muốn người học nhớ 5 ý:
+Đây là kết quả đúng.
 
-1. **Bitcoin không cần biết danh tính người dùng.**
+Mallory có thể tạo chữ ký bằng private key của Mallory. Nhưng nếu UTXO bị khóa bởi public key hash của Alice, public key của Mallory không khớp locking condition.
 
-   Bitcoin cần kiểm tra quyền chi tiêu một UTXO cụ thể.
-
-2. **Private key tạo public key bằng ECC.**
-
-   ```text
-   Q = dG
-   ```
-
-3. **Public key không làm lộ private key vì ECDLP khó.**
-
-   Toy curve phá được, secp256k1 thật thì không khả thi trong thực tế cổ điển.
-
-4. **ECDSA dùng private key để ký và public key để verify.**
-
-   Người verify không cần biết private key.
-
-5. **Implementation sai có thể làm lộ private key.**
-
-   Reused nonce hoặc known nonce có thể làm ECDSA bay màu dù toán học nền tảng vẫn mạnh.
-
----
-
-# 15. Một câu chốt cho báo cáo
-
-Có thể dùng câu này để kết thúc phần demo:
+Nói gọn:
 
 ```text
-Dự án cho thấy Bitcoin không dùng ECC/ECDSA để che giấu giao dịch, mà dùng chữ ký số để chứng minh quyền chi tiêu UTXO. ECC tạo ra quan hệ Q = dG dễ tính xuôi nhưng khó đảo ngược; ECDSA biến private key thành chữ ký có thể kiểm tra bằng public key; còn UTXO set giúp node biết output nào còn được tiêu. Tuy nhiên, bảo mật không chỉ nằm ở toán học: nếu nonce trong ECDSA bị dùng sai, private key có thể bị khôi phục ngay cả khi ECDLP vẫn rất khó.
+Ký được không có nghĩa là tiêu được.
+Phải ký bằng khóa khớp điều kiện khóa của UTXO.
+```
+
+---
+
+## 9.7. Verify OpenSSL fail sau khi sửa message
+
+Đây là kết quả đúng.
+
+Chữ ký được tạo cho message gốc. Khi message bị sửa, chữ ký cũ không còn hợp lệ.
+
+---
+
+# 10. Các câu chốt quan trọng
+
+## Câu chốt toàn đề tài
+
+```text
+ECC là nền tảng public-key crypto dựa trên ECDLP.
+ECDSA là chữ ký số xây trên ECC.
+Bitcoin là case study dùng ECDSA để chứng minh quyền chi tiêu UTXO.
+An toàn thật cần cả toán học đúng và triển khai đúng.
+```
+
+## Câu chốt Page 2
+
+```text
+ECC không thắng RSA ở mọi phép đo.
+Điểm mạnh của ECC là trade-off tốt giữa kích thước khóa, hiệu năng và mức an toàn.
+```
+
+## Câu chốt Page 3–4
+
+```text
+Tính Q từ d rất nhanh.
+Tìm d từ Q là ECDLP, rất khó với tham số thật.
+```
+
+## Câu chốt Page 5
+
+```text
+ECDSA cho phép private key ký, public key verify, không cần tiết lộ private key.
+```
+
+## Câu chốt Page 6
+
+```text
+Trong Bitcoin case study, ECDSA là dữ liệu mở khóa giúp chứng minh quyền tiêu một UTXO cụ thể.
+```
+
+## Câu chốt Page 7
+
+```text
+Không cần phá ECDLP; chỉ cần nonce sai là private key có thể lộ.
+```
+
+## Câu chốt Page 8
+
+```text
+Secure engineering không phải phần phụ. Với ECDSA, nonce discipline, constant-time, side-channel awareness và thư viện trưởng thành là sống còn.
+```
+
+## Câu chốt Page 9
+
+```text
+Toy demo giúp hiểu toán; OpenSSL cho thấy luồng ký/verify bằng công cụ thật. Nhưng ký message bằng OpenSSL không phải ký giao dịch Bitcoin đầy đủ.
+```
+
+---
+
+# 11. Ghi nhớ cuối cùng
+
+App này nên được hiểu như một **bản đồ học tập có tương tác**, không phải phần mềm mật mã thật.
+
+Khi thuyết trình, nên nhấn mạnh ba lớp:
+
+```text
+1. Lớp toán học: ECC, ECDLP, Q = dG.
+2. Lớp chữ ký: ECDSA signing và verification.
+3. Lớp ứng dụng: Bitcoin UTXO case study và secure implementation.
+```
+
+```text
+ECDSA an toàn không chỉ vì ECDLP khó, mà còn vì nonce và implementation phải đúng kỷ luật.
 ```

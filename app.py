@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import time
 import hashlib
+import re
 from math import gcd
 from pathlib import Path
 
@@ -114,16 +115,16 @@ GENERATOR_POINT = ECDSA_PARAMS.G
 ORDER_N = ECDSA_PARAMS.n
 
 DEMOS = [
-    {"id": 0, "title": "0. Bức tranh tổng quan", "desc": "Bài toán sở hữu trong Bitcoin"},
-    {"id": 1, "title": "1. Quyền sở hữu trong Bitcoin", "desc": "Quyền chi tiêu UTXO"},
-    {"id": 2, "title": "2. ECC: Q = dG", "desc": "Khóa bí mật sinh khóa công khai"},
-    {"id": 3, "title": "3. ECDLP: Vì sao Q không làm lộ d?", "desc": "Độ khó của việc đi ngược từ Q về d"},
-    {"id": 4, "title": "4. ECDSA: Ký và kiểm tra chữ ký", "desc": "Ký và kiểm tra thông điệp"},
-    {"id": 5, "title": "5. Phòng lab giao dịch Bitcoin mô phỏng", "desc": "UTXO mô phỏng + chữ ký ECDSA"},
-    {"id": 6, "title": "6. Tấn công ECDSA khi dùng lại nonce", "desc": "Tấn công tái sử dụng nonce"},
-    {"id": 7, "title": "7. Ghi chú phòng thủ nonce", "desc": "Phòng thủ khi triển khai ECDSA"},
-    {"id": 8, "title": "8. Thủ thuật Shamir", "desc": "Tối ưu bước kiểm tra chữ ký"},
-    {"id": 9, "title": "9. Bonus: OpenSSL secp256k1", "desc": "Đối chiếu toy demo với công cụ thật"}
+    {"id": 0, "title": "0. Mở đầu", "desc": "Từ mật mã khóa công khai đến ECC/ECDSA"},
+    {"id": 1, "title": "1. Từ khóa bí mật đến khóa công khai", "desc": "Key distribution, hybrid và bài toán khó"},
+    {"id": 2, "title": "2. RSA, ElGamal/DH và ECC", "desc": "So sánh nền toán + benchmark chạy thật"},
+    {"id": 3, "title": "3. Nền tảng toán học ECC", "desc": "Trường hữu hạn, đường cong, Q = dG"},
+    {"id": 4, "title": "4. ECDLP", "desc": "Brute force, BSGS, Pollard rho"},
+    {"id": 5, "title": "5. Chữ ký số ECDSA", "desc": "Keygen, signing, verification, nonce k"},
+    {"id": 6, "title": "6. Bitcoin case study", "desc": "ECDSA mở khóa UTXO mô phỏng"},
+    {"id": 7, "title": "7. Nonce attack", "desc": "Reused nonce, known nonce, partial leakage"},
+    {"id": 8, "title": "8. Phòng thủ và tối ưu", "desc": "RFC6979, constant-time, Shamir's trick"},
+    {"id": 9, "title": "9. OpenSSL và kết luận", "desc": "secp256k1 thật + tổng kết đề tài"},
 ]
 
 if "page_id" not in st.session_state:
@@ -245,17 +246,17 @@ def render_sidebar_navigation() -> None:
 
                 Mạch chính:
 
-                1. Bài toán quyền sở hữu trong Bitcoin
-                2. Quyền chi tiêu UTXO
-                3. ECC: `Q = dG`
-                4. Độ khó ECDLP
-                5. Ký số bằng ECDSA
-                6. Phòng lab giao dịch Bitcoin mô phỏng
-                7. Tấn công khi dùng lại nonce
-                8. Phòng thủ + tối ưu
-                9. OpenSSL secp256k1
+                1. Vì sao cần mật mã khóa công khai?
+                2. Từ mật mã khóa bí mật đến public-key crypto
+                3. So sánh RSA, ElGamal/DH và ECC
+                4. Nền tảng toán học ECC: `Q = dG`
+                5. ECDLP và độ khó đi ngược từ `Q` về `d`
+                6. Chữ ký số ECDSA
+                7. Bitcoin như case study của ECDSA
+                8. Nonce attack
+                9. Phòng thủ, tối ưu và OpenSSL
 
-                **Lưu ý:** code mô phỏng để học, không dùng cho ví thật.
+                **Lưu ý:** code mô phỏng để học, không dùng cho ví thật, khóa thật hoặc giao dịch thật.
                 """
             )
 
@@ -1104,230 +1105,1170 @@ def render_current_tx(label: str, tx) -> None:
 # PAGE 0
 # ============================================================
 def demo_big_picture():
-    st.title("0. Bức tranh tổng quan")
+    st.title("0. Mở đầu: Vì sao cần ECC/ECDSA?")
+
     render_page_intro(
-        "Bitcoin cần giải bài toán gì trong môi trường không có ngân hàng trung gian?",
-        "Điều cần chứng minh không phải danh tính tài khoản, mà là quyền chi tiêu một UTXO cụ thể.",
-        "Trang này đặt toàn bộ mạch: quyền sở hữu -> UTXO -> ECC -> ECDLP -> ECDSA -> xác thực giao dịch.",
+        "Vì sao cần mật mã khóa công khai?",
+        "Mật mã khóa bí mật rất nhanh, nhưng gặp bài toán phân phối khóa khi số người dùng tăng lên. "
+        "Mật mã khóa công khai ra đời để hỗ trợ trao đổi khóa, xác thực và chữ ký số.",
+        "Trang này đặt bản đồ toàn bộ đề tài: từ symmetric crypto đến public-key crypto, rồi đến ECC, ECDSA và Bitcoin case study.",
     )
 
     st.info(
-        "Luận điểm trung tâm: Bitcoin không dùng ECC/ECDSA để mã hóa giao dịch. "
-        "Bitcoin dùng chữ ký số để xác thực quyền chi tiêu."
+        "Luận điểm trung tâm: đề tài này không bắt đầu từ Bitcoin. "
+        "Trọng tâm là ECC và ECDSA trong mật mã khóa công khai; Bitcoin là một case study thực tế cho việc dùng ECDSA để chứng minh quyền chi tiêu."
     )
 
     render_term_notes([
-        ("UTXO", "Unspent Transaction Output: khoản đầu ra chưa bị tiêu, giống một tờ tiền rời rạc."),
-        ("Quyền chi tiêu", "khả năng chứng minh mình được phép tiêu một UTXO cụ thể."),
-        ("ECDSA", "thuật toán ký số: khóa bí mật dùng để ký, khóa công khai dùng để kiểm tra."),
-        ("ECDLP", "bài toán khó: biết G và Q = dG nhưng rất khó tìm lại d khi tham số đủ lớn."),
+        (
+            "Mật mã khóa bí mật",
+            "Một khóa dùng chung cho cả mã hóa và giải mã. Nhanh, nhưng khó phân phối khóa an toàn khi có nhiều người dùng."
+        ),
+        (
+            "Mật mã khóa công khai",
+            "Mỗi người có một public key để công khai và một private key để giữ bí mật. Mô hình này hỗ trợ trao đổi khóa, xác thực và chữ ký số."
+        ),
+        (
+            "Bài toán khó",
+            "Một bài toán tính xuôi dễ nhưng đi ngược rất khó nếu không có thông tin bí mật hoặc không đủ tài nguyên tính toán."
+        ),
+        (
+            "ECC",
+            "Elliptic Curve Cryptography: mật mã khóa công khai dựa trên nhóm điểm của đường cong elliptic."
+        ),
+        (
+            "ECDLP",
+            "Elliptic Curve Discrete Logarithm Problem: biết G và Q = dG, tìm lại d. Đây là bài toán khó đứng sau ECC."
+        ),
+        (
+            "ECDSA",
+            "Elliptic Curve Digital Signature Algorithm: thuật toán chữ ký số dựa trên ECC. Bitcoin truyền thống dùng ECDSA để xác thực quyền chi tiêu."
+        ),
     ])
 
-    storyline = [
-        {
-            "Bước": "0",
-            "Câu hỏi": "Bitcoin cần chứng minh điều gì?",
-            "Ý chính": "Quyền chi tiêu UTXO mà không lộ khóa bí mật",
-        },
-        {
-            "Bước": "1",
-            "Câu hỏi": "Quyền chi tiêu được biểu diễn thế nào?",
-            "Ý chính": "Ai thỏa điều kiện khóa của UTXO thì tiêu được",
-        },
-        {
-            "Bước": "2",
-            "Câu hỏi": "Khóa bí mật tạo khóa công khai thế nào?",
-            "Ý chính": "Q = dG",
-        },
-        {
-            "Bước": "3",
-            "Câu hỏi": "Vì sao có Q mà không suy ra được d?",
-            "Ý chính": "ECDLP khó trên secp256k1",
-        },
-        {
-            "Bước": "4",
-            "Câu hỏi": "ECDSA ký và kiểm tra chữ ký thế nào?",
-            "Ý chính": "Private key ký, public key kiểm tra",
-        },
-        {
-            "Bước": "5",
-            "Câu hỏi": "ECDSA đi vào giao dịch Bitcoin thế nào?",
-            "Ý chính": "Chữ ký mở khóa UTXO trong input",
-        },
-        {
-            "Bước": "6",
-            "Câu hỏi": "Triển khai sai thì sao?",
-            "Ý chính": "Lặp nonce k có thể lộ private key",
-        },
-        {
-            "Bước": "7",
-            "Câu hỏi": "Phòng thủ thế nào?",
-            "Ý chính": "RFC6979, constant-time, chuẩn hóa chữ ký",
-        },
-        {
-            "Bước": "8",
-            "Câu hỏi": "Tối ưu kiểm tra chữ ký thế nào?",
-            "Ý chính": "Shamir's trick tính u1G + u2Q nhanh hơn",
-        },
-        {
-            "Bước": "9",
-            "Câu hỏi": "Toy demo liên hệ công cụ thật thế nào?",
-            "Ý chính": "Bonus: đối chiếu với OpenSSL secp256k1",
-        }
-    ]
-    st.dataframe(pd.DataFrame(storyline), use_container_width=True)
+    st.markdown("## Bản đồ logic của đề tài")
 
-    render_learning_summary(
-        "Bức tranh tổng quan",
-        [
-            "Bắt đầu từ bài toán sở hữu trong môi trường không tin cậy.",
-            "ECC/ECDSA dùng để chứng minh quyền chi tiêu, không dùng để mã hóa giao dịch.",
-            "Phòng lab giao dịch mô phỏng là cầu nối giữa ECDSA và luồng UTXO giống Bitcoin.",
-        ],
+    st.graphviz_chart("""
+    digraph {
+        rankdir=LR;
+
+        node [
+            shape=box,
+            style="rounded,filled",
+            fillcolor="#F8FAFC",
+            color="#64748B",
+            fontname="Arial"
+        ];
+
+        edge [
+            color="#475569",
+            fontname="Arial"
+        ];
+
+        "Mật mã khóa bí mật\\nnhanh nhưng dùng chung khóa"
+            -> "Bài toán\\nphân phối khóa";
+
+        "Bài toán\\nphân phối khóa"
+            -> "Mật mã\\nkhóa công khai";
+
+        "Mật mã\\nkhóa công khai"
+            -> "RSA\\nFactorization / RSA problem";
+
+        "Mật mã\\nkhóa công khai"
+            -> "Diffie-Hellman / ElGamal\\nDiscrete Logarithm Problem";
+
+        "Mật mã\\nkhóa công khai"
+            -> "ECC\\nElliptic Curve Cryptography";
+
+        "ECC\\nElliptic Curve Cryptography"
+            -> "ECDLP\\nQ = dG khó đảo ngược";
+
+        "ECDLP\\nQ = dG khó đảo ngược"
+            -> "ECDSA\\nChữ ký số trên ECC";
+
+        "ECDSA\\nChữ ký số trên ECC"
+            -> "Bitcoin case study\\nXác thực quyền chi tiêu UTXO";
+    }
+    """)
+
+    st.caption(
+        "Sơ đồ này cho thấy Bitcoin không phải điểm xuất phát của đề tài. "
+        "Bitcoin xuất hiện ở cuối như một ứng dụng thực tế của ECDSA, còn nền tảng chính là ECC và ECDLP."
     )
 
+    st.markdown("## Ba câu hỏi dẫn dắt")
+
+    question_rows = [
+        {
+            "Câu hỏi": "1. Vì sao cần mật mã khóa công khai?",
+            "Ý chính": "Mật mã đối xứng nhanh nhưng gặp bài toán phân phối khóa. Public-key crypto giúp trao đổi khóa, xác thực và ký số.",
+            "Trang liên quan": "Page 1",
+        },
+        {
+            "Câu hỏi": "2. Vì sao ECC đáng học?",
+            "Ý chính": "ECC dựa trên ECDLP, cho phép tạo public key Q = dG từ private key d, trong khi chiều ngược Q -> d rất khó.",
+            "Trang liên quan": "Page 2, Page 3, Page 4",
+        },
+        {
+            "Câu hỏi": "3. Vì sao chọn Bitcoin làm case study?",
+            "Ý chính": "Bitcoin dùng ECDSA để chứng minh quyền chi tiêu UTXO mà không cần tiết lộ private key.",
+            "Trang liên quan": "Page 5, Page 6",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(question_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.markdown("## Lộ trình demo")
+
+    roadmap = [
+        {
+            "Page": "0",
+            "Tên": "Mở đầu",
+            "Dụng ý": "Đặt bản đồ: public-key crypto -> ECC -> ECDSA -> Bitcoin case study",
+        },
+        {
+            "Page": "1",
+            "Tên": "Từ khóa bí mật đến khóa công khai",
+            "Dụng ý": "Giải thích bài toán phân phối khóa, hybrid cryptosystem, one-way/trapdoor/hard problems",
+        },
+        {
+            "Page": "2",
+            "Tên": "RSA, ElGamal/DH và ECC",
+            "Dụng ý": "So sánh các hệ khóa công khai tiêu biểu và benchmark chạy thật bằng OpenSSL",
+        },
+        {
+            "Page": "3",
+            "Tên": "Nền tảng toán học ECC",
+            "Dụng ý": "Hiểu trường hữu hạn, đường cong elliptic, cộng điểm, nhân điểm và Q = dG",
+        },
+        {
+            "Page": "4",
+            "Tên": "ECDLP",
+            "Dụng ý": "Đóng vai attacker thử tìm d từ Q bằng brute force, BSGS và Pollard rho",
+        },
+        {
+            "Page": "5",
+            "Tên": "Chữ ký số ECDSA",
+            "Dụng ý": "Tạo chữ ký, kiểm tra chữ ký, thấy vai trò của nonce k",
+        },
+        {
+            "Page": "6",
+            "Tên": "Bitcoin case study",
+            "Dụng ý": "Mô phỏng UTXO, locking/unlocking data, public key hash, signature trong input và node verification",
+        },
+        {
+            "Page": "7",
+            "Tên": "Nonce attack",
+            "Dụng ý": "Cho thấy reused nonce hoặc known nonce có thể làm lộ private key",
+        },
+        {
+            "Page": "8",
+            "Tên": "Phòng thủ và tối ưu",
+            "Dụng ý": "Tóm tắt RFC6979, constant-time, side-channel và Shamir's trick",
+        },
+        {
+            "Page": "9",
+            "Tên": "OpenSSL và kết luận",
+            "Dụng ý": "Đối chiếu toy demo với công cụ thật secp256k1 và tổng kết toàn bộ đề tài",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(roadmap),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    render_learning_summary(
+        "Mở đầu",
+        [
+            "Mật mã khóa công khai xuất hiện vì mật mã khóa bí mật gặp bài toán phân phối khóa khi hệ thống có nhiều người dùng.",
+            "RSA, ElGamal/DH và ECC đều là các hướng public-key crypto, nhưng dựa trên các bài toán khó khác nhau.",
+            "ECC đáng học vì nó dựa trên ECDLP: tính Q = dG thì nhanh, nhưng tìm d từ Q là rất khó khi tham số đủ lớn.",
+            "ECDSA là một ứng dụng chữ ký số quan trọng của ECC.",
+            "Bitcoin được chọn làm case study vì nó dùng ECDSA để chứng minh quyền chi tiêu UTXO mà không để lộ private key.",
+        ],
+    )
 
 # ============================================================
 # PAGE 1
 # ============================================================
-def demo_ownership_in_bitcoin():
-    st.title("1. Quyền sở hữu trong Bitcoin")
+
+def demo_symmetric_to_public_key():
+    st.title("1. Từ khóa bí mật đến khóa công khai")
+
     render_page_intro(
-        "Quyền sở hữu (ownership) trong Bitcoin được biểu diễn thế nào?",
-        "Quyền sở hữu không phải là tài khoản/mật khẩu hay một dòng số dư. Trong mô hình UTXO, sở hữu nghĩa là mở được đúng khoản tiền chưa tiêu.",
-        "Trang này mô tả mô hình giống P2PKH: mã băm khóa công khai khóa UTXO, còn chữ ký + khóa công khai dùng để mở khóa.",
+        "Vì sao mật mã khóa công khai ra đời?",
+        "Mật mã khóa bí mật rất nhanh, nhưng gặp bài toán phân phối khóa khi số người dùng tăng lên.",
+        "Ta so sánh số khóa cần quản lý trong mô hình khóa bí mật theo từng cặp và mô hình khóa công khai.",
     )
+
+    st.info(
+        "Trang này là phần bối cảnh mật mã học. "
+        "Mục tiêu chưa phải học ECC ngay, mà là hiểu vì sao public-key cryptography cần thiết, "
+        "và vì sao các bài toán khó như RSA problem, DLP, ECDLP trở thành nền tảng của mật mã hiện đại."
+    )
+
+    render_term_notes([
+        (
+            "Mật mã khóa bí mật / symmetric cryptography",
+            "Hai bên dùng cùng một khóa bí mật để mã hóa và giải mã. Ví dụ hiện đại: AES."
+        ),
+        (
+            "Bài toán phân phối khóa",
+            "Trước khi liên lạc an toàn, hai bên phải có cách chia sẻ khóa bí mật. Khi số người dùng tăng, việc quản lý khóa trở nên rất khó."
+        ),
+        (
+            "Mật mã khóa công khai / public-key cryptography",
+            "Mỗi người có một public key để công khai và một private key để giữ bí mật. Public key có thể gửi cho mọi người, private key không được để lộ."
+        ),
+        (
+            "Hybrid cryptosystem",
+            "Mô hình kết hợp: public-key dùng để trao đổi khóa hoặc xác thực, còn symmetric-key dùng để mã hóa dữ liệu lớn."
+        ),
+        (
+            "One-way function",
+            "Hàm tính xuôi dễ nhưng đi ngược khó. Ví dụ trong ECC: biết d thì tính Q = dG dễ, nhưng biết Q thì tìm d khó."
+        ),
+        (
+            "Trapdoor one-way function",
+            "Hàm một chiều có cửa sập: nếu biết thông tin bí mật đặc biệt thì có thể đi ngược dễ hơn. RSA là ví dụ kinh điển."
+        ),
+        (
+            "Hard problem",
+            "Bài toán toán học khó làm nền cho mật mã khóa công khai, ví dụ factorization, discrete logarithm, ECDLP."
+        ),
+    ])
+
+    st.markdown("## 1. Bài toán phân phối khóa")
+
+    st.markdown(
+        """
+        Giả sử có `N` người trong một hệ thống.
+
+        Nếu dùng **mật mã khóa bí mật theo từng cặp**, mỗi cặp người cần một khóa riêng.
+        Số khóa cần quản lý là:
+
+        """
+    )
+
+    st.latex(r"\frac{N(N-1)}{2}")
+
+    st.markdown(
+        """
+        Còn với **mật mã khóa công khai**, mỗi người chỉ cần một cặp khóa:
+
+        ```text
+        private key: giữ bí mật
+        public key: công khai cho người khác dùng
+        ```
+
+        Số cặp khóa cần quản lý là:
+        """
+    )
+
+    st.latex(r"N")
+
+    n_users = st.slider(
+        "👥 Chọn số người dùng trong hệ thống",
+        min_value=2,
+        max_value=500,
+        value=10,
+        step=1,
+    )
+
+    symmetric_keys = n_users * (n_users - 1) // 2
+    public_key_pairs = n_users
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric(
+            "Số người dùng",
+            n_users,
+        )
+
+    with col2:
+        st.metric(
+            "Khóa đối xứng theo từng cặp",
+            symmetric_keys,
+        )
+
+    with col3:
+        st.metric(
+            "Cặp khóa công khai",
+            public_key_pairs,
+        )
+
+    comparison_rows = [
+        {
+            "Mô hình": "Mật mã khóa bí mật theo từng cặp",
+            "Số khóa cần quản lý": symmetric_keys,
+            "Công thức": "N(N-1)/2",
+            "Ý nghĩa": "Mỗi cặp người dùng cần một khóa bí mật riêng.",
+        },
+        {
+            "Mô hình": "Mật mã khóa công khai",
+            "Số cặp khóa cần quản lý": public_key_pairs,
+            "Công thức": "N",
+            "Ý nghĩa": "Mỗi người giữ một private key và công bố một public key.",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(comparison_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.markdown("## 2. Tốc độ tăng số khóa")
+
+    growth_rows = []
+
+    for n in range(2, n_users + 1):
+        growth_rows.append({
+            "Số người dùng": n,
+            "Khóa đối xứng theo từng cặp": n * (n - 1) // 2,
+            "Cặp khóa công khai": n,
+        })
+
+    growth_df = pd.DataFrame(growth_rows)
+
+    growth_long_df = growth_df.melt(
+        id_vars="Số người dùng",
+        value_vars=[
+            "Khóa đối xứng theo từng cặp",
+            "Cặp khóa công khai",
+        ],
+        var_name="Mô hình",
+        value_name="Số khóa",
+    )
+
+    fig = px.line(
+        growth_long_df,
+        x="Số người dùng",
+        y="Số khóa",
+        color="Mô hình",
+        markers=True,
+        title="Số khóa cần quản lý khi số người dùng tăng",
+    )
+
+    fig.update_layout(
+        height=520,
+        xaxis_title="Số người dùng N",
+        yaxis_title="Số khóa / cặp khóa",
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.success(
+        "Ý nghĩa: mật mã khóa công khai không làm symmetric crypto biến mất, "
+        "nhưng giải quyết rất tốt bài toán phân phối khóa và xác thực trong hệ thống lớn."
+    )
+
+    st.markdown("## 3. Public-key crypto không thay thế hoàn toàn symmetric crypto")
+
+    model_rows = [
+        {
+            "Mô hình": "Symmetric cryptography",
+            "Dùng khóa thế nào?": "Hai bên dùng chung một khóa bí mật.",
+            "Mạnh ở đâu?": "Rất nhanh, phù hợp mã hóa dữ liệu lớn.",
+            "Vấn đề": "Khó phân phối khóa an toàn khi có nhiều người dùng.",
+        },
+        {
+            "Mô hình": "Public-key cryptography",
+            "Dùng khóa thế nào?": "Mỗi người có public key và private key.",
+            "Mạnh ở đâu?": "Trao đổi khóa, xác thực, chữ ký số.",
+            "Vấn đề": "Thường chậm hơn symmetric crypto.",
+        },
+        {
+            "Mô hình": "Hybrid cryptosystem",
+            "Dùng khóa thế nào?": "Public-key dùng để trao đổi khóa hoặc xác thực; symmetric-key dùng để mã hóa dữ liệu chính.",
+            "Mạnh ở đâu?": "Kết hợp được ưu điểm của cả hai mô hình.",
+            "Vấn đề": "Cần thiết kế giao thức cẩn thận.",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(model_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    with st.container(border=True):
+        st.markdown("### Ví dụ trực giác về hybrid cryptosystem")
+
+        st.markdown(
+            """
+            Trong nhiều hệ thống thực tế, public-key crypto không trực tiếp mã hóa toàn bộ dữ liệu lớn.
+
+            Mạch thường gặp là:
+
+            ```text
+            1. Dùng public-key crypto để trao đổi một session key.
+            2. Dùng session key đó với symmetric crypto để mã hóa dữ liệu lớn.
+            3. Dùng chữ ký số để xác thực người gửi hoặc xác thực dữ liệu.
+            ```
+
+            Vì vậy, public-key crypto giống như “cơ chế bắt tay an toàn”,
+            còn symmetric crypto giống như “động cơ tốc độ cao” để mã hóa dữ liệu chính.
+            """
+        )
+
+    st.markdown("## 4. One-way, trapdoor và các bài toán khó")
+
+    hard_problem_rows = [
+        {
+            "Hệ / họ mật mã": "RSA",
+            "Bài toán nền tảng": "Factorization / RSA problem",
+            "Dạng public key": "(n, e)",
+            "Dạng private key": "d",
+            "Ghi chú": "RSA là ví dụ kinh điển của trapdoor one-way function.",
+        },
+        {
+            "Hệ / họ mật mã": "Diffie-Hellman / ElGamal",
+            "Bài toán nền tảng": "Discrete Logarithm Problem",
+            "Dạng public key": "y = g^x mod p",
+            "Dạng private key": "x",
+            "Ghi chú": "Dựa trên log rời rạc trong nhóm hữu hạn.",
+        },
+        {
+            "Hệ / họ mật mã": "ECC",
+            "Bài toán nền tảng": "Elliptic Curve Discrete Logarithm Problem",
+            "Dạng public key": "Q = dG",
+            "Dạng private key": "d",
+            "Ghi chú": "Dựa trên log rời rạc trong nhóm điểm elliptic curve.",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(hard_problem_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    col_left, col_right = st.columns(2)
+
+    with col_left:
+        st.markdown("### RSA: trapdoor one-way function")
+        st.markdown(
+            """
+            Với RSA, tính xuôi dễ nếu biết public key.
+
+            Nhưng để đi ngược hoặc tạo private key, cần thông tin bí mật liên quan đến phân tích:
+
+            ```text
+            n = p × q
+            ```
+
+            Nếu biết `p` và `q`, ta có “cửa sập” để tính private key.
+            """
+        )
+
+    with col_right:
+        st.markdown("### ECC: bài toán một chiều khó đảo")
+        st.markdown(
+            """
+            Với ECC, public key được tạo bởi:
+
+            ```text
+            Q = dG
+            ```
+
+            Biết `d` thì tính `Q` nhanh.
+
+            Nhưng biết `G` và `Q`, tìm lại `d` chính là ECDLP.
+            Khi tham số đủ lớn, bài toán này rất khó.
+            """
+        )
 
     st.warning(
-        "Đây chỉ là mô hình giáo dục giống P2PKH, không phải Bitcoin thật. "
-        "Bitcoin thật có nhiều loại Script và điều kiện tiêu khác nhau."
+        "Cẩn thận: RSA thường được trình bày như trapdoor one-way function kinh điển. "
+        "ECC thì nên hiểu là dựa trên một quan hệ một chiều khó đảo: Q = dG dễ tính xuôi, khó tìm ngược d từ Q."
     )
 
-    rows = [
-        {"Lớp": "UTXO", "Ý nghĩa": "Một khoản đầu ra chưa bị tiêu, có điều kiện khóa riêng"},
-        {"Lớp": "Điều kiện khóa (locking condition)", "Ý nghĩa": "Trong demo: mã băm của khóa công khai"},
-        {"Lớp": "Dữ liệu mở khóa (unlocking data)", "Ý nghĩa": "Trong demo: chữ ký số + khóa công khai"},
-        {"Lớp": "Kiểm tra", "Ý nghĩa": "mã băm khóa công khai khớp điều kiện khóa và chữ ký ECDSA hợp lệ"},
-        {"Lớp": "Lượt tiêu được chấp nhận", "Ý nghĩa": "UTXO tồn tại, chưa bị tiêu, và điều kiện khóa được đáp ứng"},
+    render_learning_summary(
+        "Từ khóa bí mật đến khóa công khai",
+        [
+            "Mật mã khóa bí mật rất nhanh, nhưng gặp bài toán phân phối khóa khi số người dùng tăng lên.",
+            "Mật mã khóa công khai giúp giải quyết trao đổi khóa, xác thực và chữ ký số.",
+            "Trong thực tế, nhiều hệ thống dùng mô hình hybrid: public-key cho bắt tay/xác thực, symmetric-key cho mã hóa dữ liệu lớn.",
+            "RSA, Diffie-Hellman/ElGamal và ECC đều thuộc public-key cryptography nhưng dựa trên các bài toán khó khác nhau.",
+            "Page sau sẽ đặt RSA, ElGamal/DH và ECC cạnh nhau để so sánh trực tiếp hơn, rồi benchmark một số thao tác bằng OpenSSL.",
+        ],
+    )
+
+
+def run_openssl_speed_once(algorithms: list[str], seconds: int = 2):
+    """Chạy benchmark OpenSSL speed và parse kết quả sign/verify.
+
+    Đây là benchmark chạy thật trên máy hiện tại.
+    Kết quả phụ thuộc CPU, OpenSSL version và môi trường chạy.
+    """
+    openssl_path = shutil.which("openssl")
+
+    if openssl_path is None:
+        return None, "Không tìm thấy OpenSSL trong PATH. Hãy cài OpenSSL hoặc thêm openssl.exe vào PATH."
+
+    cmd = [openssl_path, "speed", "-seconds", str(seconds), *algorithms]
+
+    try:
+        completed = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=max(30, seconds * max(1, len(algorithms)) * 8),
+            check=False,
+        )
+    except Exception as exc:
+        return None, f"Không chạy được OpenSSL benchmark: {exc}"
+
+    raw = (completed.stdout or "") + "\n" + (completed.stderr or "")
+
+    rows = []
+
+    # Ví dụ RSA/DSA:
+    # rsa 2048 bits 0.000650s 0.000022s 1539.1 45198.2
+    pattern_classic = re.compile(
+        r"^(rsa|dsa)\s+(\d+)\s+bits\s+"
+        r"([0-9.]+)s\s+([0-9.]+)s\s+([0-9.]+)\s+([0-9.]+)",
+        re.IGNORECASE,
+    )
+
+    # Ví dụ ECDSA:
+    # 256 bits ecdsa (nistp256) 0.0000s 0.0001s 33256.1 12769.3
+    pattern_ecdsa = re.compile(
+        r"^(\d+)\s+bits\s+ecdsa\s+\(([^)]+)\)\s+"
+        r"([0-9.]+)s\s+([0-9.]+)s\s+([0-9.]+)\s+([0-9.]+)",
+        re.IGNORECASE,
+    )
+
+    for line in raw.splitlines():
+        line = line.strip()
+
+        m1 = pattern_classic.match(line)
+        if m1:
+            kind, bits, sign_time, verify_time, sign_per_s, verify_per_s = m1.groups()
+
+            rows.append({
+                "Thuật toán": f"{kind.upper()} {bits}",
+                "Loại": kind.upper(),
+                "Bits": int(bits),
+                "Sign time (s)": float(sign_time),
+                "Verify time (s)": float(verify_time),
+                "Sign/s": float(sign_per_s),
+                "Verify/s": float(verify_per_s),
+            })
+            continue
+
+        m2 = pattern_ecdsa.match(line)
+        if m2:
+            bits, curve, sign_time, verify_time, sign_per_s, verify_per_s = m2.groups()
+
+            rows.append({
+                "Thuật toán": f"ECDSA {curve}",
+                "Loại": "ECDSA",
+                "Bits": int(bits),
+                "Sign time (s)": float(sign_time),
+                "Verify time (s)": float(verify_time),
+                "Sign/s": float(sign_per_s),
+                "Verify/s": float(verify_per_s),
+            })
+
+    if not rows:
+        return None, raw
+
+    return pd.DataFrame(rows), raw
+
+def render_live_public_key_benchmark():
+    st.markdown("### ⚡ Benchmark chạy thật bằng OpenSSL")
+
+    st.warning(
+        "Benchmark phụ thuộc vào CPU, phiên bản OpenSSL và môi trường chạy. "
+        "Kết quả chỉ dùng để quan sát trade-off, không phải kết luận tuyệt đối."
+    )
+
+    st.info(
+        "`ecdsap256` trong `openssl speed` là ECDSA trên NIST P-256, "
+        "không phải secp256k1 của Bitcoin. Page 9 mới dùng secp256k1 để ký/verify thật."
+    )
+
+    st.caption(
+        "Gợi ý đọc kết quả: hãy tách riêng hai thao tác signing và verification. "
+        "Một thuật toán có thể ký rất nhanh nhưng verify không nhanh nhất, hoặc ngược lại."
+    )
+
+    selected = st.multiselect(
+        "Chọn thuật toán để benchmark",
+        options=[
+            "rsa2048",
+            "rsa3072",
+            "dsa2048",
+            "ecdsap256",
+            "ecdsap384",
+        ],
+        default=["rsa2048", "rsa3072", "ecdsap256"],
+        help=(
+            "RSA 2048/3072 dùng để so sánh với ECDSA. "
+            "DSA 2048 có thể không được hỗ trợ đầy đủ tùy bản OpenSSL."
+        ),
+    )
+
+    seconds = st.slider(
+        "Số giây benchmark mỗi thuật toán",
+        min_value=1,
+        max_value=5,
+        value=2,
+    )
+
+    if st.button("🚀 Chạy OpenSSL benchmark", use_container_width=True):
+        if not selected:
+            st.warning("Hãy chọn ít nhất một thuật toán.")
+            return
+
+        with st.spinner("Đang chạy OpenSSL speed..."):
+            df, raw = run_openssl_speed_once(selected, seconds)
+
+        if df is None:
+            st.error("Không parse được kết quả benchmark.")
+            with st.expander("Xem output thô từ OpenSSL", expanded=True):
+                st.code(raw, language="text")
+            return
+
+        st.session_state["public_key_benchmark_df"] = df
+        st.session_state["public_key_benchmark_raw"] = raw
+
+    if "public_key_benchmark_df" in st.session_state:
+        df = st.session_state["public_key_benchmark_df"]
+
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        sign_chart = px.bar(
+            df,
+            x="Thuật toán",
+            y="Sign/s",
+            title="Tốc độ ký: số chữ ký mỗi giây",
+        )
+        sign_chart.update_layout(
+            height=480,
+            xaxis_title="Thuật toán",
+            yaxis_title="Sign/s",
+        )
+        st.plotly_chart(sign_chart, use_container_width=True)
+
+        verify_chart = px.bar(
+            df,
+            x="Thuật toán",
+            y="Verify/s",
+            title="Tốc độ kiểm tra chữ ký: số verify mỗi giây",
+        )
+        verify_chart.update_layout(
+            height=480,
+            xaxis_title="Thuật toán",
+            yaxis_title="Verify/s",
+        )
+        st.plotly_chart(verify_chart, use_container_width=True)
+
+        with st.expander("Xem output thô từ OpenSSL", expanded=False):
+            st.code(st.session_state.get("public_key_benchmark_raw", ""), language="text")
+
+        render_benchmark_interpretation(df)
+
+def render_benchmark_interpretation(df: pd.DataFrame) -> None:
+    """Giải thích kết quả benchmark RSA/DSA/ECDSA ở Page 2.
+
+    Hàm này không thay thế benchmark. Nó chỉ giúp người học đọc kết quả đúng:
+    - Không kết luận ECC luôn nhanh hơn RSA.
+    - Phân biệt sign và verify.
+    - Không nhầm ECDSA P-256 với secp256k1.
+    """
+    if df is None or df.empty:
+        return
+
+    required_cols = {"Thuật toán", "Sign/s", "Verify/s"}
+    if not required_cols.issubset(set(df.columns)):
+        return
+
+    st.markdown("### 🧠 Cách đọc kết quả benchmark")
+
+    fastest_sign = df.loc[df["Sign/s"].idxmax()]
+    fastest_verify = df.loc[df["Verify/s"].idxmax()]
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            "Ký nhanh nhất trong lượt chạy",
+            fastest_sign["Thuật toán"],
+            f"{float(fastest_sign['Sign/s']):.1f} sign/s",
+        )
+
+    with col2:
+        st.metric(
+            "Verify nhanh nhất trong lượt chạy",
+            fastest_verify["Thuật toán"],
+            f"{float(fastest_verify['Verify/s']):.1f} verify/s",
+        )
+
+    def find_row(keyword: str):
+        mask = df["Thuật toán"].astype(str).str.lower().str.contains(keyword.lower(), regex=False)
+        if mask.any():
+            return df[mask].iloc[0]
+        return None
+
+    rsa2048 = find_row("RSA 2048")
+    rsa3072 = find_row("RSA 3072")
+    dsa2048 = find_row("DSA 2048")
+    ecdsa_p256 = find_row("nistp256")
+    ecdsa_p384 = find_row("nistp384")
+
+    insight_rows = []
+
+    if rsa2048 is not None:
+        ratio = float(rsa2048["Verify/s"]) / max(float(rsa2048["Sign/s"]), 1e-12)
+        insight_rows.append({
+            "Nhận xét": "RSA 2048 verify nhanh hơn sign rất nhiều",
+            "Số liệu": f"{ratio:.2f} lần",
+            "Ý nghĩa": "RSA verification thường rất nhanh vì public exponent thường nhỏ.",
+        })
+
+    if rsa3072 is not None:
+        ratio = float(rsa3072["Verify/s"]) / max(float(rsa3072["Sign/s"]), 1e-12)
+        insight_rows.append({
+            "Nhận xét": "RSA 3072 verify cũng nhanh hơn sign rất nhiều",
+            "Số liệu": f"{ratio:.2f} lần",
+            "Ý nghĩa": "Khi tăng kích thước khóa RSA, signing/private operation nặng hơn rõ rệt.",
+        })
+
+    if ecdsa_p256 is not None and rsa2048 is not None:
+        ratio = float(ecdsa_p256["Sign/s"]) / max(float(rsa2048["Sign/s"]), 1e-12)
+        insight_rows.append({
+            "Nhận xét": "ECDSA P-256 sign nhanh hơn RSA 2048 sign trong lượt chạy này",
+            "Số liệu": f"{ratio:.2f} lần",
+            "Ý nghĩa": "Đây là một lợi thế hiệu năng nổi bật của ECDSA P-256 ở thao tác ký.",
+        })
+
+        verify_ratio = float(rsa2048["Verify/s"]) / max(float(ecdsa_p256["Verify/s"]), 1e-12)
+        insight_rows.append({
+            "Nhận xét": "RSA 2048 verify nhanh hơn ECDSA P-256 verify trong lượt chạy này",
+            "Số liệu": f"{verify_ratio:.2f} lần",
+            "Ý nghĩa": "Không nên kết luận ECC luôn nhanh hơn RSA ở mọi thao tác.",
+        })
+
+    if ecdsa_p256 is not None and rsa3072 is not None:
+        ratio = float(ecdsa_p256["Sign/s"]) / max(float(rsa3072["Sign/s"]), 1e-12)
+        insight_rows.append({
+            "Nhận xét": "ECDSA P-256 sign nhanh hơn RSA 3072 sign trong lượt chạy này",
+            "Số liệu": f"{ratio:.2f} lần",
+            "Ý nghĩa": "Khi RSA tăng kích thước khóa, signing chậm đi rất rõ.",
+        })
+
+    if ecdsa_p256 is not None and ecdsa_p384 is not None:
+        sign_ratio = float(ecdsa_p256["Sign/s"]) / max(float(ecdsa_p384["Sign/s"]), 1e-12)
+        verify_ratio = float(ecdsa_p256["Verify/s"]) / max(float(ecdsa_p384["Verify/s"]), 1e-12)
+
+        insight_rows.append({
+            "Nhận xét": "ECDSA P-256 nhanh hơn ECDSA P-384 đáng kể",
+            "Số liệu": f"sign ≈ {sign_ratio:.2f} lần, verify ≈ {verify_ratio:.2f} lần",
+            "Ý nghĩa": "Curve khác nhau và mức an toàn khác nhau có thể làm hiệu năng khác nhau rất mạnh.",
+        })
+
+    if dsa2048 is not None and ecdsa_p256 is not None:
+        sign_ratio = float(ecdsa_p256["Sign/s"]) / max(float(dsa2048["Sign/s"]), 1e-12)
+        verify_ratio = float(ecdsa_p256["Verify/s"]) / max(float(dsa2048["Verify/s"]), 1e-12)
+
+        insight_rows.append({
+            "Nhận xét": "ECDSA P-256 nhanh hơn DSA 2048 trong lượt chạy này",
+            "Số liệu": f"sign ≈ {sign_ratio:.2f} lần, verify ≈ {verify_ratio:.2f} lần",
+            "Ý nghĩa": "DSA giúp hiểu họ chữ ký dựa trên discrete log; ECDSA là biến thể trên elliptic curve.",
+        })
+
+    if insight_rows:
+        st.dataframe(
+            pd.DataFrame(insight_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    st.markdown("### Kết luận đúng từ benchmark")
+
+    conclusion_rows = [
+        {
+            "Kết luận sai dễ mắc": "ECC luôn nhanh hơn RSA.",
+            "Cách hiểu đúng": "Không. Benchmark cho thấy ECDSA P-256 sign rất nhanh, nhưng RSA verify vẫn cực nhanh.",
+        },
+        {
+            "Kết luận sai dễ mắc": "So sánh RSA 2048 bit với ECC 256 bit bằng số bit thô.",
+            "Cách hiểu đúng": "Không nên so số bit trực tiếp. RSA và ECC dùng bài toán khó khác nhau nên kích thước khóa không cùng ý nghĩa.",
+        },
+        {
+            "Kết luận sai dễ mắc": "ecdsap256 là secp256k1.",
+            "Cách hiểu đúng": "Không. ecdsap256 trong OpenSSL speed là NIST P-256. Bitcoin truyền thống dùng secp256k1, được demo riêng ở Page 9.",
+        },
+        {
+            "Kết luận sai dễ mắc": "Benchmark là bằng chứng an toàn.",
+            "Cách hiểu đúng": "Không. Benchmark chỉ đo hiệu năng. An toàn còn phụ thuộc tham số, bài toán khó, nonce discipline, constant-time và implementation.",
+        },
     ]
-    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+    st.dataframe(
+        pd.DataFrame(conclusion_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.success(
+        "Thông điệp nên chốt ở Page 2: ECC đáng học không phải vì nó thắng RSA ở mọi phép đo, "
+        "mà vì nó tạo ra một trade-off rất mạnh giữa kích thước khóa, hiệu năng và mức an toàn. "
+        "ECDSA là một ứng dụng chữ ký số quan trọng của trade-off đó."
+    )
+
+# ============================================================
+# PAGE 2
+# ============================================================
+
+def demo_public_key_systems_and_benchmark():
+    st.title("2. RSA, ElGamal/DH và ECC")
+
+    render_page_intro(
+        "ECC nằm ở đâu trong bản đồ mật mã khóa công khai?",
+        "RSA, ElGamal/DH và ECC đều là public-key crypto, nhưng dựa trên các bài toán khó và đối tượng toán học khác nhau.",
+        "Ta so sánh lý thuyết, so sánh chữ ký số, rồi chạy benchmark OpenSSL thật cho RSA/DSA/ECDSA.",
+    )
+
+    st.info(
+        "Dụng ý của page này: kéo trọng tâm đề tài về ECC. "
+        "Bitcoin không phải điểm xuất phát; Bitcoin chỉ là case study ở phía sau. "
+        "Trước khi tới Bitcoin, ta cần thấy ECC đứng cạnh RSA và ElGamal/DH như một họ mật mã khóa công khai."
+    )
+
+    render_term_notes([
+        (
+            "RSA",
+            "Hệ mật mã khóa công khai dựa trên số học modulo n = p*q. Thường gắn với bài toán phân tích số nguyên lớn và RSA problem."
+        ),
+        (
+            "Diffie-Hellman / ElGamal",
+            "Họ giao thức dựa trên discrete logarithm trong nhóm hữu hạn, thường viết dạng y = g^x mod p."
+        ),
+        (
+            "ECC",
+            "Elliptic Curve Cryptography: thay nhóm số modulo bằng nhóm điểm trên đường cong elliptic."
+        ),
+        (
+            "ECDLP",
+            "Bài toán log rời rạc trên đường cong elliptic: biết G và Q = dG, tìm lại d."
+        ),
+        (
+            "ECDSA P-256",
+            "ECDSA trên đường cong NIST P-256. Đây là curve OpenSSL speed thường benchmark bằng lệnh ecdsap256."
+        ),
+        (
+            "secp256k1",
+            "Đường cong Bitcoin dùng trong ECDSA truyền thống. Không được nhầm với ecdsap256 của OpenSSL speed."
+        ),
+    ])
+
+    tab_map, tab_sig, tab_bench = st.tabs([
+        "🧭 Bản đồ public-key systems",
+        "✍️ So sánh chữ ký số",
+        "⚡ Benchmark chạy thật",
+    ])
+
+    with tab_map:
+        st.markdown("## 1. RSA, ElGamal/DH và ECC khác nhau ở đâu?")
+
+        rows = [
+            {
+                "Hệ": "RSA",
+                "Public key": "(n, e)",
+                "Private key": "d",
+                "Bài toán khó": "Factorization / RSA problem",
+                "Ứng dụng": "Mã hóa, chữ ký số",
+                "Ghi chú": "Trapdoor one-way function kinh điển",
+            },
+            {
+                "Hệ": "Diffie-Hellman / ElGamal",
+                "Public key": "y = g^x mod p",
+                "Private key": "x",
+                "Bài toán khó": "Discrete Logarithm Problem",
+                "Ứng dụng": "Trao đổi khóa, mã hóa, chữ ký họ DLP",
+                "Ghi chú": "Log rời rạc trên nhóm hữu hạn",
+            },
+            {
+                "Hệ": "ECC",
+                "Public key": "Q = dG",
+                "Private key": "d",
+                "Bài toán khó": "ECDLP",
+                "Ứng dụng": "ECDH, ECDSA, EdDSA",
+                "Ghi chú": "Log rời rạc trên nhóm điểm elliptic curve",
+            },
+        ]
+
+        st.dataframe(
+            pd.DataFrame(rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown("## 2. Từ DLP đến ECDLP")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("### DLP trong nhóm modulo")
+            st.latex(r"y = g^x \pmod p")
+            st.markdown(
+                """
+                Trong Diffie-Hellman / ElGamal, private key thường là `x`,
+                public key là `y`.
+
+                Biết `g`, `p`, `y`, tìm lại `x` là bài toán log rời rạc.
+                """
+            )
+
+        with col2:
+            st.markdown("### ECDLP trong nhóm điểm elliptic curve")
+            st.latex(r"Q = dG")
+            st.markdown(
+                """
+                Trong ECC, private key là `d`, public key là điểm `Q`.
+
+                Biết `G` và `Q`, tìm lại `d` là ECDLP.
+                """
+            )
+
+        st.success(
+            "Ý tưởng lớn: ECC không phải một thứ tách rời khỏi mật mã khóa công khai. "
+            "Nó là một cách xây public-key crypto bằng nhóm điểm elliptic curve thay vì nhóm số modulo."
+        )
+
+    with tab_sig:
+        st.markdown("## 1. Chữ ký số trong các hệ public-key")
+
+        signature_rows = [
+            {
+                "Chữ ký": "RSA signature",
+                "Nền tảng": "RSA problem",
+                "Signing": "Dùng private exponent",
+                "Verification": "Dùng public exponent",
+                "Ghi chú": "Verify thường rất nhanh",
+            },
+            {
+                "Chữ ký": "DSA / ElGamal-style",
+                "Nền tảng": "DLP",
+                "Signing": "Dùng nonce k",
+                "Verification": "Kiểm tra quan hệ log rời rạc",
+                "Ghi chú": "Nhạy cảm với nonce",
+            },
+            {
+                "Chữ ký": "ECDSA",
+                "Nền tảng": "ECDLP",
+                "Signing": "Dùng nonce k và R = kG",
+                "Verification": "Tính u1G + u2Q",
+                "Ghi chú": "Bitcoin dùng ECDSA truyền thống trên secp256k1",
+            },
+        ]
+
+        st.info(
+            "Benchmark ở tab sau thường cho thấy một trade-off thú vị: "
+            "RSA verify rất nhanh, còn ECDSA P-256 có thể ký rất nhanh. "
+            "Vì vậy không nên hỏi 'RSA hay ECC nhanh hơn?' một cách chung chung; "
+            "phải hỏi nhanh hơn ở thao tác nào, với curve/key size nào, trên máy nào."
+        )
+
+        st.dataframe(
+            pd.DataFrame(signature_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown("## 2. Vì sao ECDSA đáng chú ý?")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.markdown("### Key generation")
+            st.latex(r"Q = dG")
+            st.caption("Private key d tạo public key Q bằng phép nhân điểm.")
+
+        with col2:
+            st.markdown("### Signing")
+            st.latex(r"R = kG")
+            st.latex(r"s = k^{-1}(h + rd) \bmod n")
+            st.caption("Nonce k cực kỳ nhạy cảm. Sai nonce là private key bay màu.")
+
+        with col3:
+            st.markdown("### Verification")
+            st.latex(r"P = u_1G + u_2Q")
+            st.latex(r"\mathrm{valid} \iff x(P) \bmod n = r")
+            st.caption("Verify dùng public key Q, không cần biết private key d.")
+
+        st.warning(
+            "Page này chỉ so sánh vị trí của các chữ ký. "
+            "Page 5 mới đi sâu vào trace từng bước ký và verify của ECDSA."
+        )
+
+    with tab_bench:
+        render_live_public_key_benchmark()
 
     render_learning_summary(
-        "Ownership",
+        "RSA, ElGamal/DH và ECC",
         [
-            "Ví không thật sự chứa coin; ví giữ khóa bí mật (private key).",
-            "UTXO set mới là nơi biểu diễn các output còn tiêu được.",
-            "Chữ ký hợp lệ là cách chứng minh quyền mở khóa UTXO trong mô phỏng.",
+            "RSA, ElGamal/DH và ECC đều thuộc mật mã khóa công khai, nhưng dựa trên các bài toán khó khác nhau.",
+            "RSA thường gắn với factorization/RSA problem; ElGamal/DH gắn với discrete logarithm; ECC gắn với ECDLP.",
+            "ECC thay nhóm số modulo bằng nhóm điểm trên đường cong elliptic.",
+            "ECDSA là chữ ký số dựa trên ECC, trong đó nonce k đóng vai trò cực kỳ nhạy cảm.",
+            "Benchmark giúp quan sát trade-off hiệu năng, không phải để kết luận ECC luôn nhanh hơn RSA ở mọi tiêu chí.",
+            "Bitcoin sẽ được dùng ở các page sau như một case study thực tế của ECDSA.",
         ],
     )
 
 
 # ============================================================
-# PAGE 2
+# PAGE 3
 # ============================================================
 def demo_ecc_toy_curve():
-    st.title("2. ECC: Từ khóa bí mật đến khóa công khai")
+    st.title("3. Nền tảng toán học ECC: Q = dG")
 
     render_page_intro(
-        "Khóa bí mật tạo ra khóa công khai như thế nào?",
-        "Trong ECC, khóa bí mật d là một số nguyên được giữ kín. Từ d, ta tính khóa công khai Q bằng phép nhân điểm: Q = dG.",
-        "Ở phần này, ta dùng một đường cong mô phỏng nhỏ để thấy trực quan quá trình tạo Q từ d.",
+        "ECC tạo public key từ private key như thế nào?",
+        "Trong ECC, private key d là một số nguyên được giữ kín. Public key Q là một điểm trên đường cong, được tính bằng Q = dG.",
+        "Ta dùng toy curve để nhìn thấy trường hữu hạn, đường cong elliptic, điểm sinh G, phép nhân điểm và double-and-add.",
     )
 
     st.warning(
         f"Đây là đường cong mô phỏng rất nhỏ: p = {DEMO_P}, a = {DEMO_A}, b = {DEMO_B}, "
         f"G = {point_to_text(GENERATOR_POINT)}, n = {ORDER_N}. "
-        "Đường cong này chỉ dùng để học, không phải secp256k1 và không an toàn cho bảo mật thật."
+        "Nó chỉ dùng để học toán và trực quan hóa, không an toàn cho bảo mật thật."
     )
 
     render_term_notes([
         (
-            "Khóa bí mật d",
-            "Một số nguyên do người dùng giữ kín. Trong Bitcoin thật, đây là giá trị tuyệt đối không được để lộ."
+            "Trường hữu hạn F_p",
+            "Tập các số 0, 1, ..., p-1. Mọi phép cộng, trừ, nhân, chia đều lấy phần dư modulo p."
         ),
         (
-            "Khóa công khai Q",
-            "Một điểm trên đường cong elliptic, được tính từ khóa bí mật theo công thức Q = dG."
+            "Đường cong elliptic",
+            "Tập các điểm (x, y) thỏa phương trình y² ≡ x³ + ax + b mod p, cộng thêm điểm vô cực."
         ),
         (
             "Điểm sinh G",
-            "Một điểm cố định đã được chọn trước. Có thể hiểu G là điểm xuất phát để tạo khóa công khai."
+            "Một điểm cố định trên đường cong. Từ G, ta tạo các điểm khác bằng phép cộng điểm lặp lại."
         ),
         (
-            "Đường cong mô phỏng",
-            "Một curve nhỏ để dễ tính toán và trực quan hóa. Nó giúp hiểu ý tưởng, nhưng không dùng cho hệ thống thật."
+            "Private key d",
+            "Một số nguyên bí mật. Trong hệ thật, d phải được sinh ngẫu nhiên đủ mạnh và tuyệt đối không để lộ."
         ),
         (
-            "Trường hữu hạn F_p",
-            "Tập các số 0, 1, ..., p-1 với phép cộng, trừ, nhân, chia đều lấy phần dư modulo p. ECC trong mật mã chạy trên môi trường rời rạc này."
+            "Public key Q",
+            "Một điểm trên đường cong, được tính từ private key bằng Q = dG."
         ),
         (
-            "secp256k1",
-            "Đường cong Bitcoin dùng trong ECDSA truyền thống, có dạng y² = x³ + 7 trên một trường hữu hạn rất lớn."
+            "Phép nhân điểm dG",
+            "Không phải nhân từng tọa độ với d. Nó là phép cộng điểm G với chính nó nhiều lần, được tính nhanh bằng double-and-add."
+        ),
+        (
+            "ECDLP",
+            "Bài toán đi ngược: biết G và Q = dG, tìm lại d. Đây là nội dung của Page 4."
         ),
     ])
 
+    st.markdown("## 1. Đường cong elliptic trên trường hữu hạn")
+
+    st.markdown(
+        """
+        Trong demo này, ta dùng một đường cong nhỏ trên trường hữu hạn `F_p`:
+
+        """
+    )
+
     st.latex(rf"y^2 \equiv x^3 + {DEMO_A}x + {DEMO_B} \pmod{{{DEMO_P}}}")
 
+    st.markdown(
+        """
+        Điều quan trọng: trong mật mã, đường cong không phải là một nét vẽ mượt trên mặt phẳng thực.
+        Nó là một **tập điểm rời rạc** trên trường hữu hạn.
+
+        Vì vậy page này dùng hai cách nhìn:
+
+        ```text
+        1. Đường cong trên số thực: để lấy trực giác hình học.
+        2. Điểm rời rạc trên F_p: để đúng với bản chất mật mã.
+        ```
+        """
+    )
+
     with st.container(border=True):
-        st.markdown("### ₿ Liên hệ với Bitcoin: secp256k1")
+        st.markdown("### Case study nhỏ: secp256k1 trong Bitcoin")
 
         st.markdown(
             """
-            Bitcoin truyền thống dùng đường cong **secp256k1**. Nó cũng có dạng:
+            Bitcoin truyền thống dùng curve **secp256k1**, cũng thuộc họ elliptic curve trên trường hữu hạn.
 
-            ```text
-            y² = x³ + ax + b mod p
-            ```
-
-            nhưng với:
-
-            ```text
-            a = 0
-            b = 7
-            ```
-
-            nên phương trình trở thành:
+            Dạng phương trình của secp256k1 là:
 
             ```text
             y² = x³ + 7 mod p
             ```
 
-            Điểm khác biệt ở đây là: trong demo ta dùng trường nhỏ như `F_p` để dễ vẽ,
-            còn Bitcoin dùng một trường hữu hạn 256-bit rất lớn. Vì vậy demo này giúp hiểu ý tưởng,
-            chứ không mô phỏng độ an toàn thật của Bitcoin.
+            Trong page này, ta không mô phỏng độ an toàn thật của secp256k1.
+            Ta chỉ dùng toy curve nhỏ để thấy cơ chế toán học phía sau ECC.
+            Bitcoin sẽ quay lại ở Page 6 như một case study của ECDSA.
             """
         )
 
+    st.markdown("## 2. Từ private key d đến public key Q")
+
     d = st.slider(
-        "🔑 Chọn khóa bí mật mô phỏng d",
+        "🔑 Chọn private key mô phỏng d",
         min_value=1,
         max_value=ORDER_N - 1,
         value=min(5, ORDER_N - 1),
+        help="Trong demo nhỏ này, d chỉ là một số nguyên nhỏ. Trong hệ thật, d phải là số bí mật rất lớn và được sinh an toàn.",
     )
 
     Q = ECDSA_PARAMS.curve.scalar_mul(d, ECDSA_PARAMS.G)
 
+    col_d, col_g, col_q = st.columns(3)
+
+    with col_d:
+        st.metric("Private key d", d)
+
+    with col_g:
+        st.metric("Điểm sinh G", point_to_text(ECDSA_PARAMS.G))
+
+    with col_q:
+        st.metric("Public key Q", point_to_text(Q))
+
     st.success(
-        f"Khóa công khai được tạo ra: Q = {d}G = {point_to_text(Q)}"
+        f"Public key được tạo ra bằng phép nhân điểm: Q = {d}G = {point_to_text(Q)}"
     )
 
     with st.expander("🔎 Xem quá trình double-and-add tạo Q", expanded=False):
         st.markdown(
             """
-            Phép nhân điểm `Q = dG` không phải là nhân từng tọa độ của điểm `G` với số `d`.
+            Phép nhân điểm `Q = dG` không phải là nhân từng tọa độ của `G` với `d`.
 
-            Trong ECC, `dG` nghĩa là cộng điểm `G` với chính nó nhiều lần:
+            Trong ECC:
 
             ```text
             dG = G + G + ... + G
             ```
 
-            Nhưng nếu cộng lặp từng lần thì rất chậm. Vì vậy ta dùng **double-and-add**:
-            biểu diễn `d` dưới dạng nhị phân, rồi kết hợp hai thao tác:
+            Nhưng cộng lặp từng lần sẽ chậm. Vì vậy ta dùng **double-and-add**:
+            biểu diễn `d` dưới dạng nhị phân, rồi xử lý từng bit.
 
-            - **double**: nhân đôi điểm hiện tại.
-            - **add**: cộng điểm vào kết quả khi bit đang xét bằng 1.
+            - Nếu bit đang xét bằng `1`, ta cộng thêm điểm hiện tại vào kết quả.
+            - Sau mỗi vòng, ta nhân đôi điểm hiện tại để chuẩn bị cho bit tiếp theo.
             """
         )
 
@@ -1344,7 +2285,11 @@ def demo_ecc_toy_curve():
             ECDSA_PARAMS.G,
         )
 
-        st.dataframe(pd.DataFrame(trace_rows), use_container_width=True)
+        st.dataframe(
+            pd.DataFrame(trace_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
 
         if trace_result == Q:
             st.success(
@@ -1356,81 +2301,43 @@ def demo_ecc_toy_curve():
             )
 
         st.info(
-            "Ý nghĩa: tính Q từ d là nhanh vì double-and-add dùng số bit của d, "
-            "không cần cộng G lặp lại d lần. Nhưng đi ngược từ Q về d lại là bài toán ECDLP."
+            "Ý nghĩa: tính Q từ d là nhanh vì double-and-add phụ thuộc vào số bit của d. "
+            "Nhưng đi ngược từ Q về d lại là bài toán ECDLP, và sẽ được mô phỏng ở Page 4."
         )
 
-    # points = get_curve_points(
-    #     ECDSA_PARAMS.curve.p,
-    #     ECDSA_PARAMS.curve.a,
-    #     ECDSA_PARAMS.curve.b,
-    # )
-
-    # df = pd.DataFrame(points, columns=["x", "y"])
-
-    # colors, sizes, labels = [], [], []
-
-    # for x, y in points:
-    #     if x == ECDSA_PARAMS.G.x and y == ECDSA_PARAMS.G.y:
-    #         colors.append("Điểm sinh G")
-    #         sizes.append(18)
-    #         labels.append("G")
-    #     elif not Q.is_infinity and x == Q.x and y == Q.y:
-    #         colors.append("Khóa công khai Q")
-    #         sizes.append(18)
-    #         labels.append("Q")
-    #     else:
-    #         colors.append("Điểm trên đường cong")
-    #         sizes.append(6)
-    #         labels.append("point")
-
-    # df["type"] = colors
-    # df["size"] = sizes
-    # df["label"] = labels
-
-    # fig = px.scatter(
-    #     df,
-    #     x="x",
-    #     y="y",
-    #     color="type",
-    #     size="size",
-    #     hover_name="label",
-    #     title=f"Các điểm trên đường cong mô phỏng trên trường F_{DEMO_P}",
-    # )
-
-    # st.plotly_chart(fig, use_container_width=True)
+    st.markdown("## 3. Nhìn ECC bằng hai lớp trực quan")
 
     viz_tab_real, viz_tab_finite = st.tabs([
         "🌊 Trực giác hình học trên số thực",
-        f"🔢 Điểm rời rạc trên F_{DEMO_P}",
+        f"🔢 Bản chất rời rạc trên F_{DEMO_P}",
     ])
 
     with viz_tab_real:
         st.markdown(
             """
             Trên số thực, elliptic curve nhìn giống một đường cong mượt.
-            Hình này chỉ để lấy trực giác hình học.
+            Hình này chỉ dùng để lấy trực giác hình học về “đường cong”.
 
-            Nhưng trong mật mã, ta không dùng toàn bộ đường cong mượt này.
-            Ta làm việc trên trường hữu hạn `F_p`, nên chỉ còn các điểm rời rạc.
+            Nhưng hệ ECC trong mật mã không chạy trực tiếp trên đường cong mượt này.
+            Nó chạy trên trường hữu hạn `F_p`, nên đối tượng thật là các điểm rời rạc ở tab bên cạnh.
             """
         )
 
         real_choice = st.radio(
             "Chọn đường cong để quan sát",
             [
-                "Đường cong mô phỏng hiện tại",
-                "Dạng Bitcoin: y² = x³ + 7",
+                "Toy curve đang dùng trong demo",
+                "Dạng secp256k1: y² = x³ + 7",
             ],
             horizontal=True,
         )
 
-        if real_choice == "Dạng Bitcoin: y² = x³ + 7":
+        if real_choice == "Dạng secp256k1: y² = x³ + 7":
             real_a, real_b = 0, 7
-            real_title = "Trực giác hình học của dạng Bitcoin: y² = x³ + 7"
+            real_title = "Trực giác hình học của dạng secp256k1: y² = x³ + 7"
         else:
             real_a, real_b = DEMO_A, DEMO_B
-            real_title = f"Trực giác hình học của đường cong mô phỏng: y² = x³ + {DEMO_A}x + {DEMO_B}"
+            real_title = f"Trực giác hình học của toy curve: y² = x³ + {DEMO_A}x + {DEMO_B}"
 
         real_df = get_real_curve_points(
             real_a,
@@ -1465,23 +2372,23 @@ def demo_ecc_toy_curve():
             st.plotly_chart(fig_real, use_container_width=True)
 
         st.info(
-            "Hình này giúp hiểu trực giác 'đường cong'. "
-            "Phần mật mã nằm ở tab bên cạnh: các điểm rời rạc trên F_p."
+            "Đọc hình này đúng cách: nó giúp hiểu chữ “curve”, nhưng chưa phải bản chất crypto. "
+            "Bản chất crypto nằm ở tab điểm rời rạc trên F_p."
         )
 
     with viz_tab_finite:
         st.markdown(
             f"""
-            Đây là đường cong trên trường hữu hạn `F_{DEMO_P}`.
+            Đây là toy curve trên trường hữu hạn `F_{DEMO_P}`.
 
-            Nghĩa là `x` và `y` chỉ nhận các giá trị:
+            Tọa độ `x` và `y` chỉ nhận các giá trị:
 
             ```text
             0, 1, 2, ..., {DEMO_P - 1}
             ```
 
-            và mọi phép tính đều lấy phần dư modulo `{DEMO_P}`.
-            Vì vậy hình không còn là đường cong mượt, mà là một tập các điểm rời rạc.
+            và mọi phép toán đều lấy phần dư modulo `{DEMO_P}`.
+            Vì vậy, thay vì một đường cong mượt, ta thu được một tập điểm rời rạc.
             """
         )
 
@@ -1494,7 +2401,6 @@ def demo_ecc_toy_curve():
         df = pd.DataFrame(points, columns=["x", "y"])
 
         colors, sizes, labels = [], [], []
-
         q_is_normal_point = Q is not None and not getattr(Q, "is_infinity", False)
 
         for x, y in points:
@@ -1503,11 +2409,11 @@ def demo_ecc_toy_curve():
                 sizes.append(18)
                 labels.append("G")
             elif q_is_normal_point and x == Q.x and y == Q.y:
-                colors.append("Khóa công khai Q")
+                colors.append("Public key Q")
                 sizes.append(18)
                 labels.append("Q")
             else:
-                colors.append("Điểm trên đường cong")
+                colors.append("Điểm trên toy curve")
                 sizes.append(7)
                 labels.append("point")
 
@@ -1522,7 +2428,7 @@ def demo_ecc_toy_curve():
             color="type",
             size="size",
             hover_name="label",
-            title=f"Các điểm trên đường cong mô phỏng trên trường F_{DEMO_P}",
+            title=f"Các điểm trên toy curve trong trường F_{DEMO_P}",
         )
 
         fig.update_layout(
@@ -1548,18 +2454,42 @@ def demo_ecc_toy_curve():
         st.plotly_chart(fig, use_container_width=True)
 
         st.caption(
-            "G là điểm sinh. Q là khóa công khai được tạo từ Q = dG. "
-            "Các điểm còn lại chỉ là những điểm thỏa phương trình trên F_p."
+            "G là điểm sinh cố định. Q là public key được tạo từ Q = dG. "
+            "Các điểm còn lại là những điểm thỏa phương trình elliptic curve trên F_p."
         )
 
+    st.markdown("## 4. Vì sao Page 3 dẫn sang Page 4?")
+
+    bridge_rows = [
+        {
+            "Chiều tính toán": "Từ d đến Q",
+            "Bài toán": "Q = dG",
+            "Độ khó trực giác": "Nhanh",
+            "Vì sao?": "Dùng double-and-add, phụ thuộc vào số bit của d.",
+        },
+        {
+            "Chiều tính toán": "Từ Q về d",
+            "Bài toán": "Tìm d sao cho Q = dG",
+            "Độ khó trực giác": "Rất khó với tham số thật",
+            "Vì sao?": "Đây là ECDLP, Page 4 sẽ thử brute force, BSGS và Pollard rho trên toy curve.",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(bridge_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
     render_learning_summary(
-        "ECC",
+        "Nền tảng toán học ECC",
         [
-            "Khóa bí mật d là một số nguyên được giữ kín.",
-            "Khóa công khai Q là một điểm trên đường cong, được tính bằng Q = dG.",
-            "Phép nhân điểm dG được tính hiệu quả bằng double-and-add: kết hợp cộng điểm và nhân đôi điểm.",
-            "Tính Q từ d là nhanh, nhưng tìm ngược d từ Q là bài toán ECDLP.",
-            "Đây là nền tảng giúp Bitcoin công khai khóa Q mà vẫn không làm lộ khóa bí mật d.",
+            "ECC làm việc trên nhóm điểm của đường cong elliptic trên trường hữu hạn F_p.",
+            "Private key d là một số bí mật; public key Q là một điểm được tính bằng Q = dG.",
+            "Phép nhân điểm dG được tính hiệu quả bằng double-and-add.",
+            "Đường cong thực giúp lấy trực giác hình học, còn các điểm rời rạc trên F_p mới gần với bản chất mật mã.",
+            "Tính Q từ d là nhanh; tìm ngược d từ Q là ECDLP.",
+            "Đây là nền tảng chung của các hệ ECC. Bitcoin chỉ là một case study dùng ECDSA trên nền ECC.",
         ],
     )
 
@@ -1819,22 +2749,22 @@ def pollard_rho_dlog_demo(curve, G, Q, n: int, max_steps: int = 1000):
     }
 
 
+# ============================================================
+# PAGE 4
+# ============================================================
 
-# ============================================================
-# PAGE 3
-# ============================================================
 def demo_ecdlp_explanation():
-    st.title("3. ECDLP: Vì sao public key không làm lộ private key?")
+    st.title("4. ECDLP: Vì sao Q không làm lộ d?")
 
     render_page_intro(
-        "Vì sao biết Q mà không suy ra được d?",
-        "Trong ECC, khóa công khai được tạo từ khóa bí mật theo công thức Q = dG.",
-        "Ta thử đóng vai attacker trên đường cong mô phỏng: brute force, Baby-step Giant-step và Pollard rho.",
+        "Vì sao biết public key Q mà không suy ra được private key d?",
+        "Page 3 cho thấy tính xuôi Q = dG là nhanh. Page này thử chiều ngược: biết G và Q, tìm lại d.",
+        "Ta đóng vai attacker trên toy curve và thử ba hướng: brute force, Baby-step Giant-step và Pollard rho.",
     )
 
     st.warning(
-        f"Đây là đường cong mô phỏng rất nhỏ, n = {ORDER_N}, chỉ dùng để minh họa ý tưởng. "
-        "Không brute force secp256k1 và không thử với khóa Bitcoin thật."
+        f"Đây là toy curve rất nhỏ, n = {ORDER_N}, chỉ dùng để học và trực quan hóa. "
+        "Không dùng demo này để thử với curve thật, khóa thật, ví thật hoặc hệ thống thật."
     )
 
     render_term_notes([
@@ -1843,61 +2773,113 @@ def demo_ecdlp_explanation():
             "Elliptic Curve Discrete Logarithm Problem: biết G và Q = dG, tìm lại d."
         ),
         (
+            "Attacker biết gì?",
+            "Trong mô hình này, attacker biết đường cong, điểm sinh G và public key Q. Attacker không biết private key d."
+        ),
+        (
             "Brute force",
-            "Thử lần lượt từng k cho đến khi kG = Q. Dễ hiểu nhất, nhưng chậm nhất: O(n)."
+            "Thử lần lượt từng k rồi kiểm tra kG có bằng Q không. Dễ hiểu nhất, nhưng tốn O(n) thời gian."
         ),
         (
             "Baby-step Giant-step",
-            "Chia d thành d = i*m + j. Lưu bảng các bước nhỏ jG, rồi nhảy bước lớn từ Q. Thời gian O(√n), bộ nhớ O(√n)."
+            "Thuật toán gặp nhau ở giữa: giảm thời gian xuống O(√n), nhưng phải lưu O(√n) điểm."
         ),
         (
             "Pollard rho",
-            "Đi random-walk trong nhóm điểm để tìm collision. Kỳ vọng O(√n), dùng ít bộ nhớ hơn BSGS, nhưng khó giải thích hơn."
+            "Dùng random-walk để tìm collision. Kỳ vọng O(√n) thời gian và dùng ít bộ nhớ hơn BSGS."
         ),
         (
-            "secp256k1",
-            "Đường cong elliptic mà Bitcoin dùng trong ECDSA truyền thống. Tham số thật lớn hơn đường cong mô phỏng rất nhiều."
+            "Toy curve vs curve thật",
+            "Toy curve có n nhỏ nên phá được. Curve thật có tham số rất lớn nên các demo này không thể dùng để phá khóa thật."
         ),
     ])
 
+    st.markdown("## 1. Thiết lập bài toán ECDLP")
+
     d_secret = st.slider(
-        "Chọn khóa bí mật mô phỏng d",
+        "🔐 Chọn private key bí mật mô phỏng d",
         min_value=1,
         max_value=ORDER_N - 1,
         value=min(5, ORDER_N - 1),
+        help="Trong demo, ta cố tình cho d nhỏ để có thể nhìn thấy attacker tìm lại d như thế nào.",
     )
 
     Q = ECDSA_PARAMS.curve.scalar_mul(d_secret, ECDSA_PARAMS.G)
 
-    st.info(
-        f"Khóa công khai được tạo ra từ khóa bí mật: "
-        f"Q = {d_secret}G = {point_to_text(Q)}"
+    col_curve, col_secret, col_public = st.columns(3)
+
+    with col_curve:
+        st.metric("Order mô phỏng n", ORDER_N)
+
+    with col_secret:
+        st.metric("Private key d", d_secret)
+
+    with col_public:
+        st.metric("Public key Q", point_to_text(Q))
+
+    st.success(
+        f"Hệ thống tạo public key bằng chiều dễ: Q = {d_secret}G = {point_to_text(Q)}"
     )
 
-    st.markdown(
-        """
-        Bây giờ ta giả sử attacker chỉ biết `G` và `Q`, không biết `d`.
-        Các thuật toán bên dưới đều cố tìm lại `d` trên **đường cong mô phỏng nhỏ**.
-        """
+    st.markdown("### Attacker nhìn thấy gì?")
+
+    attacker_rows = [
+        {
+            "Đối tượng": "Đường cong",
+            "Attacker biết?": True,
+            "Vai trò": "Tham số công khai của hệ ECC.",
+        },
+        {
+            "Đối tượng": "Điểm sinh G",
+            "Attacker biết?": True,
+            "Vai trò": "Điểm gốc dùng để sinh public key.",
+        },
+        {
+            "Đối tượng": "Public key Q",
+            "Attacker biết?": True,
+            "Vai trò": "Điểm được công khai, Q = dG.",
+        },
+        {
+            "Đối tượng": "Private key d",
+            "Attacker biết?": False,
+            "Vai trò": "Bí mật cần bảo vệ.",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(attacker_rows),
+        use_container_width=True,
+        hide_index=True,
     )
+
+    st.info(
+        "Bài toán của attacker: tìm một số k sao cho kG = Q. "
+        "Nếu tìm được k, attacker đã khôi phục được private key d."
+    )
+
+    st.markdown("## 2. Chọn thuật toán tấn công trên toy curve")
+
+    col_opt1, col_opt2 = st.columns(2)
+
+    with col_opt1:
+        show_bsgs = st.checkbox(
+            "Hiện Baby-step Giant-step",
+            value=True,
+            help="BSGS giúp so sánh O(n) với O(√n), nhưng cần thêm bộ nhớ để lưu bảng baby steps.",
+        )
+
+    with col_opt2:
+        show_rho = st.checkbox(
+            "Hiện Pollard rho",
+            value=False,
+            help="Pollard rho là phần nâng cao. Có thể gặp collision suy biến trên toy curve nhỏ.",
+        )
 
     brute_result = brute_force_dlog_demo(
         ECDSA_PARAMS.curve,
         ECDSA_PARAMS.G,
         Q,
         ORDER_N,
-    )
-
-    show_bsgs = st.checkbox(
-        "Hiện thêm Baby-step Giant-step",
-        value=True,
-        help="BSGS giúp so sánh độ phức tạp: từ O(n) xuống O(√n), nhưng tốn thêm bộ nhớ.",
-    )
-
-    show_rho = st.checkbox(
-        "Hiện thêm Pollard rho",
-        value=False,
-        help="Pollard rho là phần nâng cao. Với n nhỏ/prime như 23 thì dễ demo hơn, nhưng vẫn có thể gặp collision suy biến.",
     )
 
     bsgs_result = None
@@ -1928,11 +2910,14 @@ def demo_ecdlp_explanation():
             max_steps=max_steps,
         )
 
+    st.markdown("## 3. So sánh kết quả")
+
     summary_rows = [
         {
             "Thuật toán": "Brute force",
-            "Ý tưởng": "Thử từng k",
-            "Độ phức tạp": "O(n) thời gian, O(1) bộ nhớ",
+            "Ý tưởng": "Thử từng k cho đến khi kG = Q",
+            "Thời gian": "O(n)",
+            "Bộ nhớ": "O(1)",
             "d tìm được": brute_result["recovered"],
             "Số bước demo": brute_result["steps"],
             "Kết quả": "Thành công" if brute_result["success"] else "Thất bại",
@@ -1943,7 +2928,8 @@ def demo_ecdlp_explanation():
         summary_rows.append({
             "Thuật toán": "Baby-step Giant-step",
             "Ý tưởng": "Gặp nhau ở giữa: d = i*m + j",
-            "Độ phức tạp": "O(√n) thời gian, O(√n) bộ nhớ",
+            "Thời gian": "O(√n)",
+            "Bộ nhớ": "O(√n)",
             "d tìm được": bsgs_result["recovered"],
             "Số bước demo": bsgs_result["steps"],
             "Kết quả": "Thành công" if bsgs_result["success"] else "Thất bại",
@@ -1953,14 +2939,20 @@ def demo_ecdlp_explanation():
         summary_rows.append({
             "Thuật toán": "Pollard rho",
             "Ý tưởng": "Random-walk tìm collision",
-            "Độ phức tạp": "O(√n) kỳ vọng, O(1) bộ nhớ",
+            "Thời gian": "O(√n) kỳ vọng",
+            "Bộ nhớ": "O(1)",
             "d tìm được": rho_result["recovered"],
             "Số bước demo": rho_result["steps"],
             "Kết quả": "Thành công" if rho_result["status"] == "success" else "Chưa thành công",
         })
 
-    st.subheader("So sánh nhanh")
-    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
+    st.dataframe(
+        pd.DataFrame(summary_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.markdown("## 4. Xem chi tiết từng thuật toán")
 
     tabs = ["1️⃣ Brute force"]
 
@@ -1975,20 +2967,28 @@ def demo_ecdlp_explanation():
     with tab_objects[0]:
         st.markdown(
             """
-            **Brute force** là cách ngây thơ nhất: thử `k = 0, 1, 2, ...`
-            cho tới khi tìm được `kG = Q`.
+            **Brute force** là cách trực diện nhất:
 
-            Nó dễ hiểu, nhưng nếu `n` cực lớn thì gần như bất khả thi.
+            ```text
+            thử k = 0, 1, 2, ...
+            tính kG
+            nếu kG = Q thì k chính là d
+            ```
+
+            Nó dễ hiểu, nhưng với `n` lớn thì số lần thử quá khổng lồ.
             """
         )
 
         st.dataframe(
             pd.DataFrame(brute_result["rows"]),
             use_container_width=True,
+            hide_index=True,
         )
 
         if brute_result["success"]:
             st.success(f"Brute force tìm được d = {brute_result['recovered']}.")
+        else:
+            st.error("Brute force không tìm được d trong phạm vi toy order.")
 
     tab_index = 1
 
@@ -1996,38 +2996,51 @@ def demo_ecdlp_explanation():
         with tab_objects[tab_index]:
             st.markdown(
                 f"""
-                **Baby-step Giant-step** chọn `m = ceil(sqrt(n)) = {bsgs_result['m']}`.
+                **Baby-step Giant-step** dùng tư tưởng “gặp nhau ở giữa”.
 
-                Ta viết:
+                Chọn:
+
+                ```text
+                m = ceil(sqrt(n)) = {bsgs_result['m']}
+                ```
+
+                Viết private key dưới dạng:
 
                 ```text
                 d = i*m + j
-                Q = dG = i(mG) + jG
+                ```
+
+                Khi đó:
+
+                ```text
+                Q = dG = (i*m + j)G
                 Q - i(mG) = jG
                 ```
 
-                Nghĩa là:
+                Nghĩa là ta làm hai phía:
 
-                - Một bên lưu các **bước nhỏ** `jG`.
-                - Một bên nhảy **bước lớn** `Q - i(mG)`.
-                - Khi hai bên gặp nhau thì tìm được `d`.
+                - **Baby steps:** lưu bảng các điểm `jG`.
+                - **Giant steps:** thử các điểm `Q - i(mG)`.
+                - Khi hai phía gặp nhau, suy ra `d = i*m + j`.
                 """
             )
 
             col_baby, col_giant = st.columns(2)
 
             with col_baby:
-                st.markdown("#### Baby steps: lưu bảng jG")
+                st.markdown("#### Baby steps: bảng jG")
                 st.dataframe(
                     pd.DataFrame(bsgs_result["baby_rows"]),
                     use_container_width=True,
+                    hide_index=True,
                 )
 
             with col_giant:
-                st.markdown("#### Giant steps: thử Q - i(mG)")
+                st.markdown("#### Giant steps: bảng Q - i(mG)")
                 st.dataframe(
                     pd.DataFrame(bsgs_result["giant_rows"]),
                     use_container_width=True,
+                    hide_index=True,
                 )
 
             if bsgs_result["success"]:
@@ -2044,12 +3057,21 @@ def demo_ecdlp_explanation():
         with tab_objects[tab_index]:
             st.markdown(
                 """
-                **Pollard rho** cũng cố tìm `d`, nhưng không lưu bảng lớn như BSGS.
-                Nó cho hai con trỏ chạy trong nhóm điểm. Khi hai con trỏ gặp nhau
-                tại cùng một điểm, ta có một phương trình để suy ra `d`.
+                **Pollard rho** cũng tìm `d`, nhưng không lưu bảng lớn như BSGS.
 
-                Vì đây là random-walk trên đường cong mô phỏng, đôi khi collision bị suy biến.
-                Khi đó app sẽ báo rõ thay vì giả vờ thành công.
+                Ý tưởng:
+
+                ```text
+                giữ X = aG + bQ
+                cho hai con trỏ tortoise/hare chạy trong nhóm điểm
+                nếu hai con trỏ gặp nhau tại cùng X thì có collision
+                từ collision suy ra phương trình theo d
+                ```
+
+                Điểm mạnh: dùng ít bộ nhớ.
+
+                Điểm khó chịu: trên toy curve nhỏ, random-walk có thể rơi vào collision suy biến.
+                Khi đó app báo chưa thành công thay vì giả vờ phá được.
                 """
             )
 
@@ -2061,26 +3083,53 @@ def demo_ecdlp_explanation():
             st.caption(f"Số collision suy biến: {rho_result['degenerate_count']}")
 
             rows = rho_result["rows"][:200]
-            st.dataframe(pd.DataFrame(rows), use_container_width=True)
+            st.dataframe(
+                pd.DataFrame(rows),
+                use_container_width=True,
+                hide_index=True,
+            )
 
             if len(rho_result["rows"]) > 200:
                 st.caption("Chỉ hiển thị 200 dòng đầu để tránh bảng quá dài.")
 
+    st.markdown("## 5. Vì sao toy curve phá được, curve thật thì không?")
+
+    scale_rows = [
+        {
+            "Môi trường": "Toy curve trong app",
+            "Kích thước nhóm": f"n = {ORDER_N}",
+            "Điều xảy ra": "Có thể thử hết hoặc dùng BSGS/Pollard rho trong vài bước.",
+        },
+        {
+            "Môi trường": "Curve thật dùng trong hệ mật mã",
+            "Kích thước nhóm": "Rất lớn, thường cỡ hàng trăm bit",
+            "Điều xảy ra": "Brute force và thuật toán O(√n) vẫn vượt xa khả năng tính toán thực tế.",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(scale_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
     st.info(
-        "Kết luận quan trọng: các thuật toán này phá được đường cong mô phỏng vì n rất nhỏ. "
-        "Với secp256k1 thật, kể cả thuật toán O(√n) vẫn quá lớn để tấn công thực tế bằng máy tính cổ điển."
+        "Kết luận quan trọng: Page này không chứng minh ECC yếu. "
+        "Ngược lại, nó cho thấy với toy curve nhỏ thì ECDLP nhìn thấy được, "
+        "còn với tham số thật thì chiều Q -> d là thứ được thiết kế để bất khả thi trong thực tế."
     )
 
     render_learning_summary(
         "ECDLP",
         [
-            "Brute force dễ hiểu nhưng mất O(n) bước.",
-            "Baby-step Giant-step giảm xuống O(√n) thời gian nhưng phải lưu O(√n) điểm.",
-            "Pollard rho cũng khoảng O(√n) kỳ vọng và dùng ít bộ nhớ hơn, nhưng demo khó trực quan hơn.",
-            "Các thuật toán này giúp bài có màu độ phức tạp, nhưng không có nghĩa là phá được Bitcoin thật.",
+            "ECDLP là bài toán tìm d khi biết G và Q = dG.",
+            "Brute force dễ hiểu nhưng mất O(n) thời gian.",
+            "Baby-step Giant-step giảm xuống O(√n) thời gian nhưng cần O(√n) bộ nhớ.",
+            "Pollard rho cũng có thời gian kỳ vọng O(√n), dùng ít bộ nhớ hơn nhưng khó trực quan và có thể gặp collision suy biến trong toy demo.",
+            "Toy curve phá được vì n rất nhỏ; curve thật an toàn vì n cực lớn.",
+            "Page 5 sẽ dùng nền tảng này để giải thích ECDSA: ký bằng private key, verify bằng public key, nhưng không làm lộ private key.",
         ],
     )
-
 
 
 def find_tampered_message_that_fails(Q, signature, original_msg: str) -> str:
@@ -2116,51 +3165,103 @@ def find_tampered_message_that_fails(Q, signature, original_msg: str) -> str:
     return original_msg + " [đã sửa]"
 
 # ============================================================
-# PAGE 4
+# PAGE 5
 # ============================================================
 def demo_ecdsa_sign_verify():
-    st.title("4. ECDSA: Ký và kiểm tra chữ ký")
+    st.title("5. Chữ ký số ECDSA")
 
     render_page_intro(
-        "ECDSA chứng minh quyền sở hữu khóa bí mật như thế nào?",
-        "Người ký dùng khóa bí mật để tạo chữ ký; người kiểm tra dùng khóa công khai để xác minh chữ ký.",
-        "Điểm quan trọng là quá trình kiểm tra không cần biết khóa bí mật, nhưng vẫn xác nhận được chữ ký có đến từ đúng người ký hay không.",
+        "Làm sao chứng minh mình có private key mà không tiết lộ private key?",
+        "ECDSA cho phép người ký dùng private key d để tạo chữ ký, còn người kiểm tra chỉ cần public key Q để xác minh.",
+        "Ta chọn d, nonce k và message; sau đó tạo chữ ký, trace quá trình ký, verify message gốc và thử sửa message sau khi ký.",
     )
 
     st.warning(
-        f"Đây là ECDSA mô phỏng trên đường cong rất nhỏ, n = {ORDER_N}, chỉ dùng để học. "
-        "Không dùng cho khóa thật, ví thật hoặc giao dịch Bitcoin thật."
+        f"Đây là ECDSA mô phỏng trên toy curve rất nhỏ, n = {ORDER_N}. "
+        "Nó chỉ dùng để học công thức và luồng xử lý. Không dùng cho khóa thật, ví thật hoặc giao dịch thật."
     )
 
     render_term_notes([
         (
-            "Ký số",
-            "Dùng khóa bí mật để tạo một chữ ký gắn với dữ liệu cụ thể."
+            "Chữ ký số",
+            "Cơ chế chứng minh một dữ liệu được ủy quyền bởi người giữ private key, nhưng không cần tiết lộ private key."
         ),
         (
-            "Kiểm tra chữ ký",
-            "Dùng khóa công khai để kiểm tra chữ ký có hợp lệ với dữ liệu đã ký hay không."
+            "Private key d",
+            "Khóa bí mật dùng để ký. Nếu d bị lộ, attacker có thể giả mạo chữ ký."
         ),
         (
-            "Chữ ký ECDSA",
-            "Một cặp số (r, s), được tạo từ khóa bí mật, dữ liệu cần ký và nonce k."
+            "Public key Q",
+            "Khóa công khai dùng để verify. Trong ECC, Q được tính từ Q = dG."
         ),
         (
-            "Hash",
-            "Hàm băm biến dữ liệu thành một giá trị ngắn hơn, đóng vai trò như dấu vân tay của dữ liệu."
+            "Message m",
+            "Dữ liệu cần ký. Trong demo là một chuỗi text; trong Bitcoin case study sau này là dữ liệu giao dịch."
+        ),
+        (
+            "Hash h",
+            "Giá trị băm của message, được rút gọn modulo n trước khi đưa vào công thức ký."
+        ),
+        (
+            "Nonce k",
+            "Giá trị dùng một lần khi ký ECDSA. Nếu k bị lộ hoặc bị dùng lại, private key có thể bị khôi phục."
+        ),
+        (
+            "Chữ ký ECDSA (r, s)",
+            "Cặp số được tạo từ message, private key d và nonce k."
         ),
     ])
 
+    st.markdown("## 1. ECDSA nằm ở đâu trong họ chữ ký số?")
+
+    signature_rows = [
+        {
+            "Chữ ký": "RSA signature",
+            "Nền tảng": "RSA problem",
+            "Signing": "Dùng private exponent",
+            "Verification": "Dùng public exponent",
+            "Điểm cần nhớ": "Verify thường rất nhanh, nhưng không dựa trên elliptic curve.",
+        },
+        {
+            "Chữ ký": "DSA / ElGamal-style",
+            "Nền tảng": "Discrete Logarithm Problem",
+            "Signing": "Dùng nonce k",
+            "Verification": "Kiểm tra quan hệ log rời rạc",
+            "Điểm cần nhớ": "Nonce k rất nhạy cảm.",
+        },
+        {
+            "Chữ ký": "ECDSA",
+            "Nền tảng": "ECDLP",
+            "Signing": "Dùng nonce k và điểm R = kG",
+            "Verification": "Tính P = u1G + u2Q",
+            "Điểm cần nhớ": "DSA-style signature trên nhóm điểm elliptic curve.",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(signature_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.info(
+        "Page 2 đã so sánh RSA, ElGamal/DH và ECC ở mức bản đồ. "
+        "Page này chỉ tập trung vào cơ chế ECDSA: ký như thế nào, verify như thế nào và vì sao nonce k nguy hiểm."
+    )
+
     render_ecdsa_formula_box()
+
+    st.markdown("## 2. Chọn khóa, nonce và dữ liệu cần ký")
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
         d_demo = int(st.number_input(
-            "🔑 Khóa bí mật d",
+            "🔑 Private key d",
             min_value=1,
             max_value=ORDER_N - 1,
             value=min(10, ORDER_N - 1),
+            help="Private key mô phỏng. Trong hệ thật, d phải là số bí mật lớn và được sinh an toàn.",
         ))
 
     with col2:
@@ -2171,24 +3272,56 @@ def demo_ecdsa_sign_verify():
             value=min(3, ORDER_N - 1),
             help=(
                 "Nonce chỉ dùng một lần khi ký. "
-                "Page 6 sẽ cho thấy dùng lại nonce nguy hiểm như thế nào."
+                "Page 7 sẽ cho thấy reused nonce hoặc known nonce có thể làm lộ private key."
             ),
         ))
 
     with col3:
         Q_demo = ECDSA_PARAMS.curve.scalar_mul(d_demo, ECDSA_PARAMS.G)
-        st.info(f"Khóa công khai tương ứng: Q = {point_to_text(Q_demo)}")
+        st.metric("Public key Q", point_to_text(Q_demo))
 
-    msg_original = st.text_input(
-        "📝 Dữ liệu cần ký",
-        value="Hello Bitcoin",
-        max_chars=120,
+    key_rows = [
+        {
+            "Thành phần": "Private key d",
+            "Giá trị": d_demo,
+            "Công khai?": "Không",
+            "Vai trò": "Dùng để tạo chữ ký.",
+        },
+        {
+            "Thành phần": "Public key Q = dG",
+            "Giá trị": point_to_text(Q_demo),
+            "Công khai?": "Có",
+            "Vai trò": "Dùng để kiểm tra chữ ký.",
+        },
+        {
+            "Thành phần": "Nonce k",
+            "Giá trị": k_demo,
+            "Công khai?": "Không",
+            "Vai trò": "Dùng một lần trong quá trình ký.",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(key_rows),
+        use_container_width=True,
+        hide_index=True,
     )
 
-    if st.button("🖊️ Tạo chữ ký", use_container_width=True):
+    msg_original = st.text_input(
+        "📝 Message cần ký",
+        value="Hello ECDSA",
+        max_chars=120,
+        help="Trong demo là text. Trong Bitcoin case study, dữ liệu được ký là dữ liệu giao dịch.",
+    )
+
+    st.markdown("## 3. Tạo chữ ký ECDSA")
+
+    if st.button("🖊️ Tạo chữ ký ECDSA", use_container_width=True):
         ok_nonce, nonce_msg = validate_nonce(k_demo, ECDSA_PARAMS.n)
 
-        if not ok_nonce:
+        if not msg_original.strip():
+            st.warning("Message không nên để trống trong demo này.")
+        elif not ok_nonce:
             st.warning(nonce_msg)
         else:
             try:
@@ -2208,154 +3341,388 @@ def demo_ecdsa_sign_verify():
                     "k": k_demo,
                 }
 
+                # Reset message sửa để tránh dùng lại trạng thái cũ từ lần ký trước.
+                st.session_state["ecdsa_tampered_message"] = msg_original + " [đã sửa]"
+
                 st.success(f"Đã tạo chữ ký ECDSA: r = {r}, s = {s}")
 
             except Exception as exc:
-                st.error(f"Lỗi khi ký: {exc}")
-
-    if "sign_demo" in st.session_state:
-        data = st.session_state.sign_demo
-        r, s, Q, msg = data["r"], data["s"], data["Q"], data["msg"]
-        d = data.get("d")
-        k = data.get("k")
-
-        st.divider()
-        st.subheader("🖊️ Quá trình tạo chữ ký")
-
-        if d is not None and k is not None:
-            with st.expander("🖊️ Xem các bước tạo chữ ký với số cụ thể", expanded=True):
-                render_ecdsa_signing_trace(
-                    ECDSA_PARAMS,
-                    d,
-                    msg.encode("utf-8"),
-                    k,
-                    (r, s),
+                st.error(
+                    f"Lỗi khi ký: {exc}. "
+                    "Toy curve nhỏ có thể gặp edge-case như r = 0, s = 0 hoặc nonce không phù hợp. "
+                    "Hãy thử đổi k hoặc đổi message."
                 )
-        else:
-            st.info("Hãy bấm tạo lại chữ ký để xem trace quá trình ký với nonce k.")
 
-        st.divider()
-        st.subheader("🔍 Kiểm tra chữ ký")
-
-        valid_original = verify(ECDSA_PARAMS, Q, msg.encode("utf-8"), (r, s))
-
-        st.success(
-            f"Kiểm tra với dữ liệu gốc: {valid_original}"
+    if "sign_demo" not in st.session_state:
+        st.info("Hãy chọn d, k, message rồi bấm tạo chữ ký để xem trace signing và verification.")
+        render_learning_summary(
+            "ECDSA",
+            [
+                "ECDSA dùng private key d để tạo chữ ký, nhưng verify chỉ cần public key Q.",
+                "Nonce k là thành phần cực kỳ nhạy cảm trong quá trình ký.",
+                "Sau khi tạo chữ ký, page này sẽ cho thấy chữ ký gắn với message cụ thể như thế nào.",
+            ],
         )
+        return
 
-        with st.expander("🧮 Xem các bước kiểm tra chữ ký với số cụ thể", expanded=False):
-            render_ecdsa_verification_trace(
+    data = st.session_state.sign_demo
+    r, s, Q, msg = data["r"], data["s"], data["Q"], data["msg"]
+    d = data.get("d")
+    k = data.get("k")
+
+    st.divider()
+    st.markdown("## 4. Chữ ký đã tạo")
+
+    signature_rows = [
+        {
+            "Thành phần": "Message gốc",
+            "Giá trị": msg,
+            "Ý nghĩa": "Dữ liệu được ký.",
+        },
+        {
+            "Thành phần": "r",
+            "Giá trị": r,
+            "Ý nghĩa": "Thành phần thứ nhất của chữ ký ECDSA.",
+        },
+        {
+            "Thành phần": "s",
+            "Giá trị": s,
+            "Ý nghĩa": "Thành phần thứ hai của chữ ký ECDSA.",
+        },
+        {
+            "Thành phần": "Public key Q",
+            "Giá trị": point_to_text(Q),
+            "Ý nghĩa": "Khóa công khai dùng để verify.",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(signature_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.markdown("## 5. Trace quá trình ký")
+
+    if d is not None and k is not None:
+        with st.expander("🖊️ Xem các bước tạo chữ ký với số cụ thể", expanded=True):
+            render_ecdsa_signing_trace(
                 ECDSA_PARAMS,
-                Q,
+                d,
                 msg.encode("utf-8"),
+                k,
                 (r, s),
             )
+    else:
+        st.info("Hãy bấm tạo lại chữ ký để xem trace quá trình ký với nonce k.")
 
-        tampered_key = "ecdsa_tampered_message"
+    st.markdown("## 6. Verify message gốc bằng public key")
 
-        if "ecdsa_tampered_message_next" in st.session_state:
-            st.session_state[tampered_key] = st.session_state.pop("ecdsa_tampered_message_next")
-        elif tampered_key not in st.session_state:
-            st.session_state[tampered_key] = "Hello Hacker"
+    valid_original = verify(ECDSA_PARAMS, Q, msg.encode("utf-8"), (r, s))
 
-        col_tamper_input, col_tamper_button = st.columns([2, 1])
+    if valid_original:
+        st.success("Message gốc verify thành công. Người kiểm tra chỉ cần public key Q, không cần private key d.")
+    else:
+        st.error("Message gốc verify thất bại. Có thể chữ ký đang rơi vào edge-case của toy curve.")
 
-        with col_tamper_input:
-            tampered = st.text_input(
-                "🧪 Thử sửa dữ liệu sau khi ký",
-                max_chars=120,
-                key=tampered_key,
-            )
-
-        with col_tamper_button:
-            st.write("")
-            st.write("")
-            if st.button("🎯 Tạo dữ liệu sửa chắc chắn bị từ chối", use_container_width=True):
-                st.session_state.ecdsa_tampered_message_next = find_tampered_message_that_fails(
-                    Q,
-                    (r, s),
-                    msg,
-                )
-                st.rerun()
-
-        valid_tampered = verify(ECDSA_PARAMS, Q, tampered.encode("utf-8"), (r, s))
-
-        hash_original = hash_message_to_int(msg.encode("utf-8"), ECDSA_PARAMS.n)
-        hash_tampered = hash_message_to_int(tampered.encode("utf-8"), ECDSA_PARAMS.n)
-
-        st.dataframe(
-            pd.DataFrame([
-                {
-                    "Dữ liệu": "Gốc",
-                    "Message": msg,
-                    "h = H(m) mod n": hash_original,
-                    "Verify": valid_original,
-                },
-                {
-                    "Dữ liệu": "Đã sửa",
-                    "Message": tampered,
-                    "h = H(m) mod n": hash_tampered,
-                    "Verify": valid_tampered,
-                },
-            ]),
-            use_container_width=True,
+    with st.expander("🧮 Xem các bước kiểm tra chữ ký với message gốc", expanded=False):
+        render_ecdsa_verification_trace(
+            ECDSA_PARAMS,
+            Q,
+            msg.encode("utf-8"),
+            (r, s),
         )
 
-        with st.expander("🧮 Xem các bước kiểm tra chữ ký với dữ liệu đã sửa", expanded=False):
-            render_ecdsa_verification_trace(
-                ECDSA_PARAMS,
-                Q,
-                tampered.encode("utf-8"),
-                (r, s),
-            )
+    st.markdown("## 7. Sửa message sau khi ký")
 
-        if valid_tampered:
-            st.warning(
-                "Dữ liệu đã sửa vẫn được chấp nhận trong mô phỏng nhỏ. "
-                "Điều này xảy ra vì n quá nhỏ, nên sau khi lấy H(m) mod n và kiểm tra x(P) mod n, "
-                "một số message khác nhau vẫn có thể vô tình thỏa cùng điều kiện verify. "
-                "Trong tham số thật như secp256k1, xác suất này là cực nhỏ."
+    st.markdown(
+        """
+        Bây giờ thử thay đổi dữ liệu sau khi đã ký.
+
+        Nếu chữ ký thật sự gắn với message ban đầu, việc sửa message sẽ làm verify thất bại.
+        Tuy nhiên, vì toy curve có `n` rất nhỏ, đôi khi message sửa vẫn vô tình verify True.
+        Khi đó đây là hạn chế của mô phỏng nhỏ, không phải tính chất mong muốn trong hệ thật.
+        """
+    )
+
+    tampered_key = "ecdsa_tampered_message"
+
+    if "ecdsa_tampered_message_next" in st.session_state:
+        st.session_state[tampered_key] = st.session_state.pop("ecdsa_tampered_message_next")
+    elif tampered_key not in st.session_state:
+        st.session_state[tampered_key] = msg + " [đã sửa]"
+
+    col_tamper_input, col_tamper_button = st.columns([2, 1])
+
+    with col_tamper_input:
+        tampered = st.text_input(
+            "🧪 Message sau khi bị sửa",
+            max_chars=120,
+            key=tampered_key,
+        )
+
+    with col_tamper_button:
+        st.write("")
+        st.write("")
+        if st.button("🎯 Tìm message sửa chắc chắn bị từ chối", use_container_width=True):
+            st.session_state.ecdsa_tampered_message_next = find_tampered_message_that_fails(
+                Q,
+                (r, s),
+                msg,
             )
-        else:
-            st.error(
-                "Dữ liệu đã sửa bị từ chối. Điều này cho thấy chữ ký ECDSA gắn chặt với dữ liệu ban đầu."
-            )
+            st.rerun()
+
+    valid_tampered = verify(ECDSA_PARAMS, Q, tampered.encode("utf-8"), (r, s))
+
+    hash_original = hash_message_to_int(msg.encode("utf-8"), ECDSA_PARAMS.n)
+    hash_tampered = hash_message_to_int(tampered.encode("utf-8"), ECDSA_PARAMS.n)
+
+    compare_rows = [
+        {
+            "Dữ liệu": "Gốc",
+            "Message": msg,
+            "h = H(m) mod n": hash_original,
+            "Verify": valid_original,
+        },
+        {
+            "Dữ liệu": "Đã sửa",
+            "Message": tampered,
+            "h = H(m) mod n": hash_tampered,
+            "Verify": valid_tampered,
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(compare_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    with st.expander("🧮 Xem các bước kiểm tra chữ ký với message đã sửa", expanded=False):
+        render_ecdsa_verification_trace(
+            ECDSA_PARAMS,
+            Q,
+            tampered.encode("utf-8"),
+            (r, s),
+        )
+
+    if valid_tampered:
+        st.warning(
+            "Message đã sửa vẫn được chấp nhận trong toy demo. "
+            "Nguyên nhân là n quá nhỏ, nên sau khi lấy H(m) mod n và kiểm tra x(P) mod n, "
+            "một vài message khác nhau có thể vô tình thỏa điều kiện verify. "
+            "Trong hệ thật với tham số lớn, xác suất kiểu này cực nhỏ."
+        )
+    else:
+        st.success(
+            "Message đã sửa bị từ chối. Đây là hành vi mong muốn: chữ ký ECDSA gắn với dữ liệu ban đầu."
+        )
 
     render_learning_summary(
-        "ECDSA",
+        "Chữ ký số ECDSA",
         [
-            "Khóa bí mật d dùng để tạo chữ ký, còn khóa công khai Q dùng để kiểm tra chữ ký.",
-            "Chữ ký ECDSA là cặp số (r, s), gắn với dữ liệu đã ký.",
-            "Bước verify kiểm tra quan hệ x(u1G + u2Q) mod n = r, không cần biết private key.",
-            "Nếu dữ liệu bị sửa, giá trị hash thay đổi, làm quan hệ kiểm tra thường không còn đúng.",
-            "Trong Bitcoin, dữ liệu được ký không phải là một câu văn, mà là dữ liệu giao dịch cần được ủy quyền.",
+            "ECDSA giúp chứng minh người ký có private key d mà không cần tiết lộ d.",
+            "Key generation dùng Q = dG: private key là d, public key là Q.",
+            "Signing dùng message, hash h, private key d và nonce k để tạo chữ ký (r, s).",
+            "Verification dùng message, chữ ký (r, s) và public key Q để kiểm tra quan hệ P = u1G + u2Q.",
+            "Nonce k cực kỳ nhạy cảm: dùng lại hoặc làm lộ k có thể làm lộ private key, nội dung này sẽ được mô phỏng ở Page 7.",
+            "Trong Bitcoin case study, message không phải một câu text mà là dữ liệu giao dịch cần được ủy quyền.",
         ],
     )
 
+# ============================================================
+# PAGE 6
+# ============================================================
+def render_bitcoin_case_study_overview():
+    """Giải thích phần ownership/UTXO trước khi vào transaction lab."""
 
-# ============================================================
-# PAGE 5 - NEW INTERACTIVE TX LAB
-# ============================================================
+    st.markdown("## 1. Bitcoin case study: ECDSA dùng để chứng minh quyền chi tiêu")
+
+    st.markdown(
+        """
+        Trong mô hình giống Bitcoin, ví không “chứa coin” như tài khoản ngân hàng.
+
+        Cách hiểu đúng hơn là:
+
+        ```text
+        Ví giữ private key.
+        Blockchain/UTXO set ghi nhận các output chưa bị tiêu.
+        Muốn tiêu một UTXO, người dùng phải đưa ra dữ liệu mở khóa hợp lệ.
+        ```
+
+        Với mô hình demo giống P2PKH:
+
+        ```text
+        UTXO bị khóa bởi public key hash.
+        Người tiêu cung cấp public key + ECDSA signature.
+        Node kiểm tra public key hash và chữ ký.
+        ```
+        """
+    )
+
+    ownership_rows = [
+        {
+            "Lớp": "Ví / Wallet",
+            "Trong demo là gì?": "Bộ khóa của Alice, Bob, Mallory",
+            "Ý nghĩa": "Ví giữ private key để ký, không trực tiếp chứa coin.",
+        },
+        {
+            "Lớp": "UTXO",
+            "Trong demo là gì?": "Một output chưa bị tiêu",
+            "Ý nghĩa": "Đây là khoản tiền mô phỏng có thể được tiêu nếu mở khóa đúng.",
+        },
+        {
+            "Lớp": "Locking condition",
+            "Trong demo là gì?": "Public key hash",
+            "Ý nghĩa": "Điều kiện khóa của UTXO: ai có public key tương ứng và chữ ký hợp lệ thì tiêu được.",
+        },
+        {
+            "Lớp": "Unlocking data",
+            "Trong demo là gì?": "Public key + ECDSA signature",
+            "Ý nghĩa": "Dữ liệu người tiêu đưa vào input để chứng minh quyền chi tiêu.",
+        },
+        {
+            "Lớp": "Node verification",
+            "Trong demo là gì?": "Kiểm tra UTXO + public key hash + chữ ký",
+            "Ý nghĩa": "Node chấp nhận hoặc từ chối giao dịch.",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(ownership_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.markdown("## 2. Luồng kiểm tra giao dịch trong mô phỏng")
+
+    st.graphviz_chart("""
+digraph {
+    rankdir=LR;
+
+    node [
+        shape=box,
+        style="rounded,filled",
+        fillcolor="#F8FAFC",
+        color="#64748B",
+        fontname="Arial"
+    ];
+
+    edge [
+        color="#475569",
+        fontname="Arial"
+    ];
+
+    "Ví giữ\\nprivate key d"
+        -> "Tạo public key\\nQ = dG";
+
+    "Tạo public key\\nQ = dG"
+        -> "Tính\\nPubKeyHash";
+
+    "Tính\\nPubKeyHash"
+        -> "UTXO bị khóa bởi\\nPubKeyHash";
+
+    "Transaction chưa ký"
+        -> "Ký bằng private key\\nECDSA signature";
+
+    "Ký bằng private key\\nECDSA signature"
+        -> "Unlocking data\\npublic key + signature";
+
+    "UTXO bị khóa bởi\\nPubKeyHash"
+        -> "Node verification";
+
+    "Unlocking data\\npublic key + signature"
+        -> "Node verification";
+
+    "Node verification"
+        -> "Accept / Reject";
+}
+""")
+
+    st.caption(
+        "Sơ đồ này là bản rút gọn của case study: ECDSA không mã hóa giao dịch, "
+        "mà tạo chữ ký để chứng minh quyền tiêu một UTXO cụ thể."
+    )
+
+    st.markdown("## 3. Phòng lab tương tác")
+
+    lab_rows = [
+        {
+            "Tab": "1️⃣ Ví & UTXO",
+            "Dùng để làm gì?": "Xem ví Alice/Bob/Mallory và tạo UTXO demo.",
+        },
+        {
+            "Tab": "2️⃣ Tạo giao dịch",
+            "Dùng để làm gì?": "Chọn UTXO đầu vào, người nhận và amount để tạo transaction chưa ký.",
+        },
+        {
+            "Tab": "3️⃣ Ký & kiểm tra",
+            "Dùng để làm gì?": "Ký transaction bằng private key, node verify, rồi apply vào UTXO set.",
+        },
+        {
+            "Tab": "4️⃣ Sửa phá / tấn công / tiêu hai lần",
+            "Dùng để làm gì?": "Sửa amount, đổi receiver, thay public key, Mallory ký sai, hoặc thử double spend.",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(lab_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
 def demo_interactive_bitcoin_transaction_lab():
-    st.title("5. Phòng lab giao dịch Bitcoin mô phỏng")
+    st.title("6. Bitcoin case study: ECDSA mở khóa UTXO")
+
     render_page_intro(
-        "ECDSA đi vào giao dịch giống Bitcoin như thế nào?",
-        "Chữ ký + khóa công khai là dữ liệu mở khóa, dùng để chứng minh người gửi có quyền tiêu một UTXO.",
-        "Người dùng tự tạo UTXO, tạo giao dịch, ký, kiểm tra, áp dụng giao dịch, sửa phá và thử tiêu hai lần.",
+        "ECDSA đi vào Bitcoin như thế nào?",
+        "Trong case study này, ECDSA được dùng để chứng minh người gửi có quyền tiêu một UTXO, mà không cần tiết lộ private key.",
+        "Người dùng tự tạo UTXO, tạo transaction, ký, verify, apply vào UTXO set, rồi thử các tình huống sửa phá và double spend.",
     )
 
     st.warning(
-        "Đây chỉ là mô hình giáo dục giống P2PKH. Không phải Bitcoin thật, không có Script đầy đủ, "
-        "không có quy tắc ký thật của Bitcoin, không có đồng thuận mạng, không kết nối network và không dùng khóa thật."
+        "Đây là mô hình giáo dục giống P2PKH, không phải Bitcoin thật. "
+        "Demo không có Script đầy đủ, không có quy tắc ký thật của Bitcoin, không có đồng thuận mạng, "
+        "không kết nối network và không dùng khóa thật."
     )
 
     render_term_notes([
-        ("UTXO", "khoản đầu ra chưa bị tiêu. Muốn tiêu phải tham chiếu đúng UTXO đó."),
-        ("OutPoint", "địa chỉ của một UTXO cũ, gồm mã giao dịch txid và vị trí output."),
-        ("Giao dịch chưa ký", "giao dịch mới có đầu vào/đầu ra nhưng chưa có chữ ký mở khóa."),
-        ("Gửi/áp dụng", "trong demo nghĩa là cho node mô phỏng kiểm tra và cập nhật tập UTXO."),
-        ("Tiêu hai lần", "cố dùng lại cùng một UTXO đã tiêu; node phải từ chối."),
+        (
+            "Wallet / Ví",
+            "Trong demo, ví là bộ khóa của Alice, Bob, Mallory. Ví giữ private key, không trực tiếp chứa coin."
+        ),
+        (
+            "UTXO",
+            "Unspent Transaction Output: output chưa bị tiêu. Muốn tiêu phải tham chiếu đúng UTXO đó."
+        ),
+        (
+            "OutPoint",
+            "Địa chỉ của một UTXO cũ, gồm txid và vị trí output."
+        ),
+        (
+            "Locking condition",
+            "Điều kiện khóa của UTXO. Trong demo là public key hash."
+        ),
+        (
+            "Unlocking data",
+            "Dữ liệu mở khóa. Trong demo là public key + ECDSA signature."
+        ),
+        (
+            "Giao dịch chưa ký",
+            "Transaction mới có input/output nhưng chưa có chữ ký mở khóa."
+        ),
+        (
+            "Node verification",
+            "Node kiểm tra UTXO tồn tại, chưa bị tiêu, public key hash khớp và chữ ký ECDSA hợp lệ."
+        ),
+        (
+            "Double spend",
+            "Cố dùng lại cùng một UTXO đã tiêu. Node phải từ chối lần tiêu sau."
+        ),
     ])
+
+    render_bitcoin_case_study_overview()
 
     init_tx_lab_state()
     lab = st.session_state.tx_lab
@@ -2722,75 +4089,165 @@ def demo_interactive_bitcoin_transaction_lab():
         render_action_log()
 
     render_learning_summary(
-        "Phòng lab giao dịch Bitcoin mô phỏng",
+        "Bitcoin case study: ECDSA mở khóa UTXO",
         [
-            "Chữ ký ECDSA không đứng một mình; trong mô hình này, nó là dữ liệu mở khóa dùng để chứng minh quyền tiêu một UTXO cụ thể.",
+            "Ví không trực tiếp chứa coin; trong mô hình này, ví giữ private key để tạo chữ ký.",
+            "UTXO set biểu diễn các output chưa bị tiêu, mỗi UTXO có một điều kiện khóa riêng.",
+            "Trong mô hình giống P2PKH, UTXO bị khóa bởi public key hash; người tiêu cung cấp public key và ECDSA signature để mở khóa.",
             "Một giao dịch chỉ được chấp nhận khi UTXO tồn tại, chưa bị tiêu, public key hash khớp điều kiện khóa và chữ ký ECDSA hợp lệ.",
-            "Sửa số tiền hoặc đổi người nhận sau khi ký sẽ làm dữ liệu giao dịch thay đổi, khiến chữ ký cũ không còn hợp lệ.",
-            "Mallory không thể tiêu UTXO của Alice bằng khóa của mình, vì public key hash không khớp điều kiện khóa của UTXO Alice.",
-            "Thay public key mở khóa sau khi ký cũng làm transaction bị từ chối, vì unlocking data không còn khớp với locking condition.",
-            "Double spend bị từ chối vì cùng một UTXO không được tiêu hai lần trong tập UTXO mô phỏng.",
+            "Sửa số tiền hoặc đổi người nhận sau khi ký làm dữ liệu transaction thay đổi, khiến chữ ký cũ không còn hợp lệ.",
+            "Mallory không thể tiêu UTXO của Alice bằng khóa của mình, vì public key hash không khớp locking condition.",
+            "Double spend bị từ chối vì cùng một UTXO không được tiêu hai lần trong UTXO set mô phỏng.",
+            "Đây là case study của ECDSA trong Bitcoin, không phải mô phỏng đầy đủ Bitcoin protocol.",
         ],
     )
 
 
 # ============================================================
-# PAGE 6
+# PAGE 7
 # ============================================================
 def demo_reused_nonce_attack():
-    st.title("6. Tấn công ECDSA khi dùng lại nonce")
+    st.title("7. Nonce attack: khi ECDSA triển khai sai")
+
     render_page_intro(
-        "ECDSA có chắc chắn an toàn không?",
-        "ECDSA phụ thuộc vào toán học đúng và triển khai đúng. Nonce k là số dùng một lần, không được tái sử dụng.",
-        "Người dùng chọn d, k và hai thông điệp; app thử khôi phục lại k và khóa bí mật.",
+        "ECDLP khó có đủ để bảo vệ private key không?",
+        "Không đủ. Nếu ECDSA triển khai sai nonce k, attacker có thể khôi phục private key mà không cần giải ECDLP.",
+        "Ta mô phỏng ba tình huống: dùng lại nonce, nonce bị lộ hoàn toàn, và rò rỉ một phần nonce ở mức ghi chú lý thuyết.",
     )
 
     st.warning(
-        "Đây là tấn công mô phỏng để học. Nó minh họa lỗi triển khai khi dùng lại nonce, "
-        "không có nghĩa là ECDSA đúng chuẩn bị phá."
+        "Đây là mô phỏng giáo dục trên toy curve rất nhỏ. "
+        "Page này không chứng minh ECDSA bị phá về mặt toán học; nó chứng minh rằng triển khai sai nonce có thể làm lộ private key."
     )
 
     render_term_notes([
-        ("Nonce k", "số bí mật dùng một lần khi ký ECDSA. Mỗi chữ ký phải dùng k mới."),
-        ("Dùng lại nonce", "dùng cùng k cho hai thông điệp khác nhau; đây là lỗi rất nguy hiểm."),
-        ("Nghịch đảo modulo", "phép chia trong số học modulo; chỉ tồn tại khi hai số nguyên tố cùng nhau."),
-        ("Khôi phục khóa", "từ hai chữ ký lỗi, kẻ tấn công có thể tính lại khóa bí mật trong mô phỏng."),
+        (
+            "Nonce k",
+            "Giá trị bí mật dùng một lần trong mỗi chữ ký ECDSA. Mỗi chữ ký phải dùng một k riêng và không được để lộ."
+        ),
+        (
+            "Reused nonce",
+            "Dùng cùng một nonce k để ký hai message khác nhau. Đây là lỗi triển khai rất nguy hiểm."
+        ),
+        (
+            "Known nonce",
+            "Nonce k của một chữ ký bị lộ hoàn toàn. Chỉ một chữ ký cũng đủ để khôi phục private key."
+        ),
+        (
+            "Partial nonce leakage",
+            "Nonce k không lộ toàn bộ, nhưng rò một phần qua nhiều chữ ký, ví dụ qua side-channel hoặc RNG yếu."
+        ),
+        (
+            "Side-channel",
+            "Kênh rò rỉ phụ như thời gian chạy, cache, điện năng hoặc lỗi triển khai."
+        ),
+        (
+            "Lattice attack",
+            "Nhóm kỹ thuật nâng cao có thể khai thác nhiều chữ ký với nonce bị rò một phần. Page này chỉ ghi chú, không demo."
+        ),
     ])
 
-    st.latex(r"k' = (h_1 - h_2)(s_1 - s_2)^{-1} \pmod n")
-    st.latex(r"d' = (s_1 k' - h_1)r^{-1} \pmod n")
+    st.markdown("## 1. Thông điệp chính của page")
 
-    # col_key, col_nonce = st.columns(2)
-    # with col_key:
-    #     d_victim = int(st.number_input("🔑 Khóa bí mật d", min_value=1, max_value=ORDER_N - 1, value=min(2, ORDER_N - 1)))
-    # with col_nonce:
-    #     k_reuse = int(st.number_input("🎲 Reused nonce k", min_value=1, max_value=ORDER_N - 1, value=min(4, ORDER_N - 1)))
+    thesis_rows = [
+        {
+            "Lớp bảo vệ": "ECDLP",
+            "Nói gì?": "Biết G và Q = dG thì rất khó tìm lại d trên tham số thật.",
+            "Page liên quan": "Page 4",
+        },
+        {
+            "Lớp triển khai": "Nonce discipline",
+            "Nói gì?": "ECDSA yêu cầu nonce k phải bí mật, không lặp lại và không rò rỉ.",
+            "Page liên quan": "Page 7",
+        },
+        {
+            "Bài học": "An toàn = toán học đúng + triển khai đúng",
+            "Nói gì?": "Không cần phá ECDLP vẫn có thể lấy private key nếu nonce bị dùng sai.",
+            "Page liên quan": "Page 7 -> Page 8",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(thesis_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.markdown("## 2. Chọn tham số mô phỏng")
 
     col_key, col_nonce = st.columns(2)
 
     with col_key:
         d_victim = int(st.number_input(
-            "🔑 Khóa bí mật d",
+            "🔑 Private key nạn nhân d",
             min_value=1,
             max_value=ORDER_N - 1,
             value=min(3, ORDER_N - 1),
-            help="Private key mô phỏng. Giá trị này không phải nguyên nhân trực tiếp gây lỗi nghịch đảo nonce.",
+            help=(
+                "Đây là private key mô phỏng của nạn nhân. "
+                "Trong hệ thật, attacker không được biết d; mục tiêu của attack là khôi phục d."
+            ),
         ))
 
     with col_nonce:
         k_reuse = int(st.number_input(
-            "🎲 Nonce k",
+            "🎲 Nonce mô phỏng k",
             min_value=1,
             max_value=ORDER_N - 1,
             value=min(5, ORDER_N - 1),
-            help="Nonce dùng khi ký. Nếu k bị lộ hoặc bị dùng lại, private key có thể bị khôi phục.",
+            help=(
+                "Nonce dùng khi ký. Nếu k bị dùng lại hoặc bị lộ, private key d có thể bị khôi phục."
+            ),
         ))
 
+    Q_victim = ECDSA_PARAMS.curve.scalar_mul(d_victim, ECDSA_PARAMS.G)
+
+    key_rows = [
+        {
+            "Thành phần": "Private key d",
+            "Giá trị": d_victim,
+            "Attacker biết?": "Không",
+            "Vai trò": "Khóa bí mật cần bảo vệ.",
+        },
+        {
+            "Thành phần": "Public key Q = dG",
+            "Giá trị": point_to_text(Q_victim),
+            "Attacker biết?": "Có",
+            "Vai trò": "Khóa công khai dùng để verify chữ ký.",
+        },
+        {
+            "Thành phần": "Nonce k",
+            "Giá trị": k_reuse,
+            "Attacker biết?": "Tùy mode attack",
+            "Vai trò": "Giá trị cực kỳ nhạy cảm trong ECDSA signing.",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(key_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.markdown("## 3. Chọn message và kiểu tấn công")
+
     col1, col2 = st.columns(2)
+
     with col1:
-        msg1 = st.text_input("Thông điệp 1", value="Thanh toan 1 BTC cho Alice", max_chars=120)
+        msg1 = st.text_input(
+            "Thông điệp 1",
+            value="Thanh toan 1 BTC cho Alice",
+            max_chars=120,
+            help="Message thứ nhất. Trong Bitcoin case study, đây sẽ tương ứng với dữ liệu giao dịch được ký.",
+        )
+
     with col2:
-        msg2 = st.text_input("Thông điệp 2", value="Thanh toan 2 BTC cho Bob", max_chars=120)
+        msg2 = st.text_input(
+            "Thông điệp 2",
+            value="Thanh toan 2 BTC cho Bob",
+            max_chars=120,
+            help="Message thứ hai dùng cho reused nonce attack.",
+        )
 
     attack_mode = st.radio(
         "Chọn kiểu tấn công nonce",
@@ -2802,340 +4259,1049 @@ def demo_reused_nonce_attack():
         horizontal=False,
     )
 
-
-    if st.button("⚡ Chạy mô phỏng tấn công", use_container_width=True):
-        ok_nonce, nonce_msg = validate_nonce(k_reuse, ECDSA_PARAMS.n)
-
-        if not ok_nonce:
-            st.warning(nonce_msg)
-            return
-
-        if attack_mode == "Partial nonce leakage: ghi chú lý thuyết":
-            st.info(
-                "Partial nonce leakage là trường hợp nonce k không bị lộ hoàn toàn, "
-                "nhưng rò rỉ một phần qua nhiều chữ ký, ví dụ qua side-channel hoặc RNG yếu. "
-                "Trong thực tế, dạng này có thể dẫn tới lattice attack. "
-                "Project này chỉ ghi chú lý thuyết, không demo lattice để tránh làm lệch trọng tâm."
-            )
-
-            st.dataframe(
-                pd.DataFrame([
-                    {
-                        "Kiểu lỗi": "Reused nonce",
-                        "Dữ liệu attacker cần": "Hai chữ ký dùng cùng k",
-                        "Kết quả": "Khôi phục k rồi khôi phục d",
-                        "Demo trong app": "Có",
-                    },
-                    {
-                        "Kiểu lỗi": "Known nonce",
-                        "Dữ liệu attacker cần": "Một chữ ký và nonce k bị lộ",
-                        "Kết quả": "Khôi phục d từ một chữ ký",
-                        "Demo trong app": "Có",
-                    },
-                    {
-                        "Kiểu lỗi": "Partial nonce leakage",
-                        "Dữ liệu attacker cần": "Nhiều chữ ký với k bị rò một phần",
-                        "Kết quả": "Có thể khôi phục d bằng kỹ thuật nâng cao như lattice attack",
-                        "Demo trong app": "Không, chỉ ghi chú",
-                    },
-                ]),
-                use_container_width=True,
-            )
-
-            return
-
-        if attack_mode == "Reused nonce: dùng lại k cho hai chữ ký":
-            try:
-                r1, s1 = sign(ECDSA_PARAMS, d_victim, msg1.encode("utf-8"), k=k_reuse)
-                r2, s2 = sign(ECDSA_PARAMS, d_victim, msg2.encode("utf-8"), k=k_reuse)
-            except Exception as exc:
-                st.warning(
-                    f"Không tạo được chữ ký với k = {k_reuse}: {exc}. "
-                    "Toy curve quá nhỏ nên có thể gặp edge-case. App sẽ thử tìm một nonce hợp lệ khác."
-                )
-
-                auto_k, signatures = find_valid_nonce_for_messages(
-                    ECDSA_PARAMS,
-                    d_victim,
-                    [msg1, msg2],
-                )
-
-                if auto_k is None:
-                    st.error("Không tìm được nonce hợp lệ cho hai thông điệp hiện tại.")
-                    return
-
-                k_reuse = auto_k
-                (r1, s1), (r2, s2) = signatures
-                st.info(f"Đã tự chọn nonce hợp lệ k = {k_reuse} để tiếp tục demo.")
-
-            h1 = hash_message_to_int(msg1.encode("utf-8"), ECDSA_PARAMS.n)
-            h2 = hash_message_to_int(msg2.encode("utf-8"), ECDSA_PARAMS.n)
-
-            st.subheader("1. Hai chữ ký dùng cùng nonce")
-
-            st.dataframe(
-                pd.DataFrame([
-                    {"Thông điệp": "msg1", "h": h1, "r": r1, "s": s1},
-                    {"Thông điệp": "msg2", "h": h2, "r": r2, "s": s2},
-                ]),
-                use_container_width=True,
-            )
-
-            can_recover, reason = can_run_reused_nonce_attack(
-                msg1,
-                msg2,
-                h1,
-                h2,
-                r1,
-                s1,
-                r2,
-                s2,
-                ECDSA_PARAMS.n,
-            )
-
-            if not can_recover:
-                st.warning(reason)
-                return
-
-            s_diff_inv = safe_mod_inverse(s1 - s2, ECDSA_PARAMS.n)
-            r_inv = safe_mod_inverse(r1, ECDSA_PARAMS.n)
-
-            if s_diff_inv is None or r_inv is None:
-                st.warning("Mẫu số không khả nghịch modulo n.")
-                return
-
-            k_recovered = ((h1 - h2) * s_diff_inv) % ECDSA_PARAMS.n
-            d_recovered = ((s1 * k_recovered - h1) * r_inv) % ECDSA_PARAMS.n
-
-            st.subheader("2. Khôi phục nonce và private key")
-
-            st.dataframe(
-                pd.DataFrame([
-                    {"Giá trị": "k ban đầu", "Kết quả": k_reuse},
-                    {"Giá trị": "k khôi phục", "Kết quả": k_recovered},
-                    {"Giá trị": "d ban đầu", "Kết quả": d_victim},
-                    {"Giá trị": "d khôi phục", "Kết quả": d_recovered},
-                ]),
-                use_container_width=True,
-            )
-
-            if k_recovered == k_reuse and d_recovered == d_victim:
-                st.success("🎯 Tấn công thành công: đã khôi phục nonce và khóa bí mật.")
-            else:
-                st.error("Không khớp. Đây là edge-case của đường cong mô phỏng / tham số hiện tại.")
-
-        elif attack_mode == "Known nonce: nonce k bị lộ trong một chữ ký":
-            try:
-                r, s = sign(ECDSA_PARAMS, d_victim, msg1.encode("utf-8"), k=k_reuse)
-            except Exception as exc:
-                st.warning(
-                    f"Không tạo được chữ ký với k = {k_reuse}: {exc}. "
-                    "App sẽ thử tìm một nonce hợp lệ khác."
-                )
-
-                auto_k, signatures = find_valid_nonce_for_messages(
-                    ECDSA_PARAMS,
-                    d_victim,
-                    [msg1],
-                )
-
-                if auto_k is None:
-                    st.error("Không tìm được nonce hợp lệ cho thông điệp hiện tại.")
-                    return
-
-                k_reuse = auto_k
-                r, s = signatures[0]
-                st.info(f"Đã tự chọn nonce hợp lệ k = {k_reuse} để tiếp tục demo.")
-
-            h = hash_message_to_int(msg1.encode("utf-8"), ECDSA_PARAMS.n)
-
-            st.subheader("1. Một chữ ký có nonce bị lộ")
-
-            st.dataframe(
-                pd.DataFrame([
-                    {
-                        "Message": msg1,
-                        "h = H(m) mod n": h,
-                        "r": r,
-                        "s": s,
-                        "nonce k bị lộ": k_reuse,
-                    }
-                ]),
-                use_container_width=True,
-            )
-
-            st.latex(r"d' = (s k - h)r^{-1} \pmod n")
-
-            d_recovered, reason = recover_private_key_from_known_nonce(
-                h,
-                r,
-                s,
-                k_reuse,
-                ECDSA_PARAMS.n,
-            )
-
-            if d_recovered is None:
-                st.warning(reason)
-                return
-
-            st.subheader("2. Khôi phục private key từ nonce bị lộ")
-
-            st.dataframe(
-                pd.DataFrame([
-                    {"Giá trị": "d ban đầu", "Kết quả": d_victim},
-                    {"Giá trị": "d khôi phục", "Kết quả": d_recovered},
-                ]),
-                use_container_width=True,
-            )
-
-            if d_recovered == d_victim:
-                st.success("🎯 Tấn công thành công: chỉ cần biết nonce k của một chữ ký là khôi phục được private key.")
-            else:
-                st.error("Không khớp. Đây là edge-case của đường cong mô phỏng.")
-
-    render_learning_summary(
-        "Tấn công liên quan đến nonce",
-        [
-            "Reused nonce: dùng lại cùng k cho hai thông điệp khác nhau có thể làm lộ k và private key d.",
-            "Known nonce: nếu k của một chữ ký bị lộ, private key d có thể bị khôi phục ngay từ công thức ECDSA.",
-            "Partial nonce leakage là hướng nâng cao: k chỉ rò một phần nhưng qua nhiều chữ ký vẫn có thể nguy hiểm.",
-            "Page 6 không phá ECDLP; nó minh họa rằng triển khai ECDSA sai có thể làm private key bay màu.",
-        ],
-    )
-
-
-# ============================================================
-# PAGE 7
-# ============================================================
-def demo_nonce_defense_notes():
-    st.title("7. Phòng thủ nonce trong ECDSA")
-
-    render_page_intro(
-        "Nonce reuse nguy hiểm, vậy phòng thủ thế nào?",
-        "ECDSA chỉ an toàn khi cả toán học và triển khai đều đúng kỷ luật.",
-        "Trang này tóm tắt các nguyên tắc quan trọng: không dùng lại nonce, sinh nonce an toàn, tránh rò rỉ qua side-channel và dùng thư viện mật mã đã được kiểm chứng.",
-    )
-
-    render_term_notes([
-        (
-            "Nonce k",
-            "Giá trị bí mật dùng một lần trong mỗi chữ ký ECDSA. Nếu lặp lại hoặc bị đoán được, khóa bí mật có thể bị lộ."
-        ),
-        (
-            "RFC6979-style",
-            "Cách sinh nonce xác định từ khóa bí mật và thông điệp, giúp giảm rủi ro do nguồn random yếu."
-        ),
-        (
-            "Constant-time",
-            "Kỹ thuật viết code sao cho thời gian chạy không phụ thuộc vào dữ liệu bí mật."
-        ),
-        (
-            "Side-channel",
-            "Kênh rò rỉ phụ như thời gian chạy, cache, điện năng hoặc lỗi triển khai."
-        ),
-        (
-            "Thư viện trưởng thành",
-            "Thư viện mật mã đã được kiểm thử, audit và sử dụng rộng rãi, thay vì tự viết crypto cho sản phẩm thật."
-        ),
-    ])
-
-    rows = [
+    mode_rows = [
         {
-            "Cách phòng thủ": "Không bao giờ dùng lại nonce k",
-            "Ý nghĩa": "Mỗi chữ ký ECDSA phải có nonce riêng. Lặp nonce có thể làm lộ khóa bí mật.",
+            "Kiểu lỗi": "Reused nonce",
+            "Attacker cần gì?": "Hai chữ ký khác message nhưng dùng cùng k",
+            "Kết quả": "Khôi phục k rồi khôi phục d",
+            "Demo?": "Có",
         },
         {
-            "Cách phòng thủ": "Dùng nguồn ngẫu nhiên đáng tin cậy",
-            "Ý nghĩa": "Nếu nonce được sinh ngẫu nhiên, bộ sinh số ngẫu nhiên phải đủ mạnh và không bị lệch.",
+            "Kiểu lỗi": "Known nonce",
+            "Attacker cần gì?": "Một chữ ký và nonce k bị lộ",
+            "Kết quả": "Khôi phục d từ một chữ ký",
+            "Demo?": "Có",
         },
         {
-            "Cách phòng thủ": "Sinh nonce xác định kiểu RFC6979",
-            "Ý nghĩa": "Nonce được tạo từ khóa bí mật và thông điệp, giúp giảm phụ thuộc vào random bên ngoài.",
-        },
-        {
-            "Cách phòng thủ": "Triển khai constant-time",
-            "Ý nghĩa": "Giảm nguy cơ lộ thông tin bí mật qua thời gian chạy hoặc các kênh phụ.",
-        },
-        {
-            "Cách phòng thủ": "Dùng thư viện mật mã đã được kiểm chứng",
-            "Ý nghĩa": "Hệ thống thật nên dùng thư viện trưởng thành, không tự viết ECDSA production từ demo học tập.",
+            "Kiểu lỗi": "Partial nonce leakage",
+            "Attacker cần gì?": "Nhiều chữ ký với k bị rò một phần",
+            "Kết quả": "Có thể khôi phục d bằng kỹ thuật nâng cao như lattice attack",
+            "Demo?": "Không, chỉ ghi chú",
         },
     ]
 
-    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+    with st.expander("🧭 So sánh nhanh các kiểu lỗi nonce", expanded=False):
+        st.dataframe(
+            pd.DataFrame(mode_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    st.markdown("## 4. Chạy mô phỏng")
+
+    if not st.button("⚡ Chạy mô phỏng tấn công", use_container_width=True):
+        st.info("Chọn tham số và mode attack, rồi bấm nút để chạy mô phỏng.")
+        render_learning_summary(
+            "Nonce attack",
+            [
+                "ECDLP bảo vệ private key khỏi việc bị suy ngược từ public key Q.",
+                "Nonce k trong ECDSA là lớp triển khai cực kỳ nhạy cảm.",
+                "Nếu k bị dùng lại hoặc bị lộ, attacker có thể khôi phục private key bằng đại số modulo.",
+                "Partial nonce leakage là hướng nâng cao: không demo lattice ở đây để giữ project đúng trọng tâm.",
+            ],
+        )
+        return
+
+    ok_nonce, nonce_msg = validate_nonce(k_reuse, ECDSA_PARAMS.n)
+
+    if not ok_nonce:
+        st.warning(nonce_msg)
+        return
+
+    if not msg1.strip():
+        st.warning("Thông điệp 1 không nên để trống.")
+        return
+
+    if attack_mode == "Reused nonce: dùng lại k cho hai chữ ký":
+        if not msg2.strip():
+            st.warning("Thông điệp 2 không nên để trống khi chạy reused nonce attack.")
+            return
+
+        st.markdown("## 5. Reused nonce attack")
+
+        st.markdown(
+            """
+            Khi cùng một nonce `k` được dùng để ký hai message khác nhau:
+
+            """
+        )
+
+        st.latex(r"s_1 = k^{-1}(h_1 + r d) \pmod n")
+        st.latex(r"s_2 = k^{-1}(h_2 + r d) \pmod n")
+
+        st.markdown("Lấy hiệu hai phương trình, ta khử được phần chứa `d`:")
+
+        st.latex(r"s_1 - s_2 = k^{-1}(h_1 - h_2) \pmod n")
+
+        st.markdown("Từ đó khôi phục nonce:")
+
+        st.latex(r"k' = (h_1 - h_2)(s_1 - s_2)^{-1} \pmod n")
+
+        st.markdown("Sau khi biết `k`, khôi phục private key:")
+
+        st.latex(r"d' = (s_1 k' - h_1)r^{-1} \pmod n")
+
+        try:
+            r1, s1 = sign(ECDSA_PARAMS, d_victim, msg1.encode("utf-8"), k=k_reuse)
+            r2, s2 = sign(ECDSA_PARAMS, d_victim, msg2.encode("utf-8"), k=k_reuse)
+        except Exception as exc:
+            st.warning(
+                f"Không tạo được chữ ký với k = {k_reuse}: {exc}. "
+                "Toy curve nhỏ nên có thể gặp edge-case như r = 0, s = 0. "
+                "App sẽ thử tự tìm một nonce hợp lệ khác."
+            )
+
+            auto_k, signatures = find_valid_nonce_for_messages(
+                ECDSA_PARAMS,
+                d_victim,
+                [msg1, msg2],
+            )
+
+            if auto_k is None:
+                st.error("Không tìm được nonce hợp lệ cho hai thông điệp hiện tại.")
+                return
+
+            k_reuse = auto_k
+            (r1, s1), (r2, s2) = signatures
+            st.info(f"Đã tự chọn nonce hợp lệ k = {k_reuse} để tiếp tục demo.")
+
+        h1 = hash_message_to_int(msg1.encode("utf-8"), ECDSA_PARAMS.n)
+        h2 = hash_message_to_int(msg2.encode("utf-8"), ECDSA_PARAMS.n)
+
+        st.markdown("### 5.1. Hai chữ ký dùng cùng nonce")
+
+        signature_rows = [
+            {
+                "Message": "msg1",
+                "Nội dung": msg1,
+                "h = H(m) mod n": h1,
+                "r": r1,
+                "s": s1,
+                "nonce k": k_reuse,
+            },
+            {
+                "Message": "msg2",
+                "Nội dung": msg2,
+                "h = H(m) mod n": h2,
+                "r": r2,
+                "s": s2,
+                "nonce k": k_reuse,
+            },
+        ]
+
+        st.dataframe(
+            pd.DataFrame(signature_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        can_recover, reason = can_run_reused_nonce_attack(
+            msg1,
+            msg2,
+            h1,
+            h2,
+            r1,
+            s1,
+            r2,
+            s2,
+            ECDSA_PARAMS.n,
+        )
+
+        if not can_recover:
+            st.warning(reason)
+            st.info(
+                "Đây là edge-case của toy curve nhỏ hoặc message hiện tại. "
+                "Hãy đổi message hoặc đổi nonce k rồi chạy lại."
+            )
+            return
+
+        s_diff = (s1 - s2) % ECDSA_PARAMS.n
+        h_diff = (h1 - h2) % ECDSA_PARAMS.n
+        s_diff_inv = safe_mod_inverse(s1 - s2, ECDSA_PARAMS.n)
+        r_inv = safe_mod_inverse(r1, ECDSA_PARAMS.n)
+
+        if s_diff_inv is None or r_inv is None:
+            st.warning("Mẫu số không khả nghịch modulo n, không thể khôi phục trong mẫu hiện tại.")
+            return
+
+        k_recovered = ((h1 - h2) * s_diff_inv) % ECDSA_PARAMS.n
+        d_recovered = ((s1 * k_recovered - h1) * r_inv) % ECDSA_PARAMS.n
+
+        st.markdown("### 5.2. Trace khôi phục k và d")
+
+        trace_rows = [
+            {
+                "Bước": "Tính hiệu hash",
+                "Công thức": "h1 - h2 mod n",
+                "Giá trị": h_diff,
+                "Ý nghĩa": "Phần khác nhau giữa hai message.",
+            },
+            {
+                "Bước": "Tính hiệu chữ ký",
+                "Công thức": "s1 - s2 mod n",
+                "Giá trị": s_diff,
+                "Ý nghĩa": "Mẫu số để khôi phục nonce.",
+            },
+            {
+                "Bước": "Nghịch đảo hiệu chữ ký",
+                "Công thức": "(s1 - s2)^(-1) mod n",
+                "Giá trị": s_diff_inv,
+                "Ý nghĩa": "Phép chia trong modulo n.",
+            },
+            {
+                "Bước": "Khôi phục nonce",
+                "Công thức": "k' = (h1 - h2)(s1 - s2)^(-1) mod n",
+                "Giá trị": k_recovered,
+                "Ý nghĩa": "Nonce ban đầu bị khôi phục.",
+            },
+            {
+                "Bước": "Nghịch đảo r",
+                "Công thức": "r^(-1) mod n",
+                "Giá trị": r_inv,
+                "Ý nghĩa": "Chuẩn bị khôi phục private key.",
+            },
+            {
+                "Bước": "Khôi phục private key",
+                "Công thức": "d' = (s1*k' - h1)r^(-1) mod n",
+                "Giá trị": d_recovered,
+                "Ý nghĩa": "Private key bị suy ra từ hai chữ ký lỗi.",
+            },
+        ]
+
+        st.dataframe(
+            pd.DataFrame(trace_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        result_rows = [
+            {"Giá trị": "k ban đầu", "Kết quả": k_reuse},
+            {"Giá trị": "k khôi phục", "Kết quả": k_recovered},
+            {"Giá trị": "d ban đầu", "Kết quả": d_victim},
+            {"Giá trị": "d khôi phục", "Kết quả": d_recovered},
+        ]
+
+        st.dataframe(
+            pd.DataFrame(result_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        if k_recovered == k_reuse and d_recovered == d_victim:
+            st.success(
+                "🎯 Tấn công thành công: từ hai chữ ký dùng cùng nonce, attacker khôi phục được cả k và private key d."
+            )
+        else:
+            st.error(
+                "Kết quả không khớp. Đây có thể là edge-case của toy curve hoặc tham số hiện tại."
+            )
+
+    elif attack_mode == "Known nonce: nonce k bị lộ trong một chữ ký":
+        st.markdown("## 5. Known nonce attack")
+
+        st.markdown(
+            """
+            Với một chữ ký ECDSA:
+
+            """
+        )
+
+        st.latex(r"s = k^{-1}(h + rd) \pmod n")
+
+        st.markdown("Nếu attacker biết `k`, chỉ cần biến đổi đại số:")
+
+        st.latex(r"d' = (s k - h)r^{-1} \pmod n")
+
+        try:
+            r, s = sign(ECDSA_PARAMS, d_victim, msg1.encode("utf-8"), k=k_reuse)
+        except Exception as exc:
+            st.warning(
+                f"Không tạo được chữ ký với k = {k_reuse}: {exc}. "
+                "App sẽ thử tự tìm một nonce hợp lệ khác."
+            )
+
+            auto_k, signatures = find_valid_nonce_for_messages(
+                ECDSA_PARAMS,
+                d_victim,
+                [msg1],
+            )
+
+            if auto_k is None:
+                st.error("Không tìm được nonce hợp lệ cho thông điệp hiện tại.")
+                return
+
+            k_reuse = auto_k
+            r, s = signatures[0]
+            st.info(f"Đã tự chọn nonce hợp lệ k = {k_reuse} để tiếp tục demo.")
+
+        h = hash_message_to_int(msg1.encode("utf-8"), ECDSA_PARAMS.n)
+
+        st.markdown("### 5.1. Một chữ ký có nonce bị lộ")
+
+        known_rows = [
+            {
+                "Message": msg1,
+                "h = H(m) mod n": h,
+                "r": r,
+                "s": s,
+                "nonce k bị lộ": k_reuse,
+            }
+        ]
+
+        st.dataframe(
+            pd.DataFrame(known_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        r_inv = safe_mod_inverse(r, ECDSA_PARAMS.n)
+
+        if r_inv is None:
+            st.warning("Không thể khôi phục vì r không có nghịch đảo modulo n.")
+            return
+
+        d_recovered, reason = recover_private_key_from_known_nonce(
+            h,
+            r,
+            s,
+            k_reuse,
+            ECDSA_PARAMS.n,
+        )
+
+        if d_recovered is None:
+            st.warning(reason)
+            return
+
+        st.markdown("### 5.2. Trace khôi phục private key")
+
+        trace_rows = [
+            {
+                "Bước": "Tính s*k - h",
+                "Công thức": "s*k - h mod n",
+                "Giá trị": (s * k_reuse - h) % ECDSA_PARAMS.n,
+                "Ý nghĩa": "Tách phần chứa r*d từ công thức ký.",
+            },
+            {
+                "Bước": "Tính nghịch đảo của r",
+                "Công thức": "r^(-1) mod n",
+                "Giá trị": r_inv,
+                "Ý nghĩa": "Dùng để chia cho r trong modulo n.",
+            },
+            {
+                "Bước": "Khôi phục private key",
+                "Công thức": "d' = (s*k - h)r^(-1) mod n",
+                "Giá trị": d_recovered,
+                "Ý nghĩa": "Private key bị suy ra từ một chữ ký nếu nonce k bị lộ.",
+            },
+        ]
+
+        st.dataframe(
+            pd.DataFrame(trace_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        result_rows = [
+            {"Giá trị": "d ban đầu", "Kết quả": d_victim},
+            {"Giá trị": "d khôi phục", "Kết quả": d_recovered},
+        ]
+
+        st.dataframe(
+            pd.DataFrame(result_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        if d_recovered == d_victim:
+            st.success(
+                "🎯 Tấn công thành công: chỉ cần biết nonce k của một chữ ký, attacker khôi phục được private key d."
+            )
+        else:
+            st.error("Kết quả không khớp. Đây có thể là edge-case của toy curve.")
+
+    elif attack_mode == "Partial nonce leakage: ghi chú lý thuyết":
+        st.markdown("## 5. Partial nonce leakage")
+
+        st.info(
+            "Partial nonce leakage là trường hợp nonce k không bị lộ toàn bộ, "
+            "nhưng một phần thông tin về k bị rò qua nhiều chữ ký."
+        )
+
+        leakage_rows = [
+            {
+                "Nguồn rò rỉ": "RNG yếu hoặc bị lệch",
+                "Ví dụ": "Nonce không thật sự ngẫu nhiên, có bias hoặc lặp mẫu.",
+                "Rủi ro": "Nhiều chữ ký có nonce yếu có thể làm lộ private key.",
+            },
+            {
+                "Nguồn rò rỉ": "Timing side-channel",
+                "Ví dụ": "Thời gian chạy phụ thuộc vào bit bí mật của k.",
+                "Rủi ro": "Attacker đo thời gian để suy ra một phần nonce.",
+            },
+            {
+                "Nguồn rò rỉ": "Cache / power side-channel",
+                "Ví dụ": "Mẫu truy cập bộ nhớ hoặc điện năng tiết lộ một phần quá trình tính toán.",
+                "Rủi ro": "Có thể gom nhiều chữ ký để tấn công nâng cao.",
+            },
+            {
+                "Nguồn rò rỉ": "Lattice attack",
+                "Ví dụ": "Dùng nhiều chữ ký với một phần nonce bị biết hoặc bị bias.",
+                "Rủi ro": "Có thể khôi phục private key trong một số điều kiện.",
+            },
+        ]
+
+        st.dataframe(
+            pd.DataFrame(leakage_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.warning(
+            "App không demo lattice attack vì đây là chủ đề cryptanalysis nâng cao. "
+            "Trong project này, chỉ cần hiểu bài học chính: nonce k không được lặp, không được lộ và không được rò một phần."
+        )
+
+        st.markdown("### Vì sao không demo lattice ở đây?")
+
+        reason_rows = [
+            {
+                "Lý do": "Lệch trọng tâm",
+                "Giải thích": "Đề tài chính là ECC, ECDLP, ECDSA và Bitcoin case study; lattice attack sẽ kéo project sang cryptanalysis nâng cao.",
+            },
+            {
+                "Lý do": "Cần nhiều nền toán hơn",
+                "Giải thích": "Lattice attack cần kiến thức về lattice reduction, ví dụ LLL/BKZ.",
+            },
+            {
+                "Lý do": "Dễ làm người xem quá tải",
+                "Giải thích": "Demo reused nonce và known nonce đã đủ chứng minh nonce discipline quan trọng.",
+            },
+        ]
+
+        st.dataframe(
+            pd.DataFrame(reason_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     render_learning_summary(
-        "Phòng thủ nonce",
+        "Nonce attack",
         [
-            "Nonce trong ECDSA là giá trị cực kỳ nhạy cảm: không được lặp lại, không được đoán được và không được rò rỉ.",
-            "RFC6979-style nonce giúp giảm rủi ro từ nguồn random yếu, nhưng không thay thế toàn bộ yêu cầu triển khai an toàn.",
-            "Toy code chỉ dùng để học ý tưởng; hệ thống thật phải dùng thư viện mật mã trưởng thành và được kiểm chứng.",
+            "Page 4 cho thấy ECDLP khó: biết Q rất khó suy ra d.",
+            "Page 7 cho thấy một hướng khác: không cần giải ECDLP, chỉ cần ECDSA triển khai sai nonce là private key có thể bị lộ.",
+            "Reused nonce: dùng cùng k cho hai message khác nhau có thể khôi phục k rồi khôi phục private key d.",
+            "Known nonce: nếu k của một chữ ký bị lộ, private key d có thể bị khôi phục ngay từ công thức ECDSA.",
+            "Partial nonce leakage: k chỉ rò một phần nhưng qua nhiều chữ ký vẫn có thể nguy hiểm, thường liên quan đến side-channel và lattice attack.",
+            "Page 8 sẽ nói cách phòng thủ: nonce discipline, RFC6979-style, constant-time và dùng thư viện mật mã trưởng thành.",
         ],
     )
 
+def render_ecdsa_defense_checklist_tab():
+    st.markdown("## 1. Phòng thủ triển khai ECDSA")
+
+    st.markdown(
+        """
+        Page 7 cho thấy: **không cần phá ECDLP**, chỉ cần nonce `k` bị dùng sai là private key có thể bay màu.
+
+        Vì vậy, khi triển khai ECDSA thật, câu hỏi không chỉ là:
+
+        ```text
+        Toán học có đúng không?
+        ```
+
+        mà còn là:
+
+        ```text
+        Nonce có an toàn không?
+        Code có rò thời gian không?
+        Có dùng thư viện đáng tin không?
+        ```
+        """
+    )
+
+    threat_rows = [
+        {
+            "Mối đe dọa": "Attacker thấy nhiều chữ ký",
+            "Liên quan": "Reused nonce, biased nonce, partial leakage",
+            "Phòng thủ": "RFC6979/CSPRNG tốt, không reuse nonce",
+        },
+        {
+            "Mối đe dọa": "Attacker đo thời gian chạy",
+            "Liên quan": "Timing side-channel",
+            "Phòng thủ": "Constant-time implementation",
+        },
+        {
+            "Mối đe dọa": "Attacker khai thác lỗi tự viết crypto",
+            "Liên quan": "Sai edge-case, sai validate, sai randomness",
+            "Phòng thủ": "Dùng thư viện trưởng thành, test vector, audit",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(threat_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.markdown("### 🧪 Checklist rủi ro triển khai")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        nonce_strategy = st.radio(
+            "Cách sinh nonce k",
+            [
+                "RFC6979-style deterministic nonce",
+                "Random nonce từ CSPRNG tốt",
+                "Random thường / seed yếu",
+                "Cố định hoặc có thể dùng lại k",
+            ],
+            index=0,
+            help="Trong ECDSA, nonce k phải bí mật, không lặp lại và không được đoán được.",
+            key="defense_nonce_strategy",
+        )
+
+        no_reuse_policy = st.checkbox(
+            "Có cơ chế đảm bảo không reuse nonce",
+            value=True,
+            key="defense_no_reuse_policy",
+        )
+
+        test_vectors = st.checkbox(
+            "Có test vector / kiểm thử chữ ký",
+            value=True,
+            key="defense_test_vectors",
+        )
+
+    with col2:
+        constant_time = st.checkbox(
+            "Triển khai constant-time cho phần xử lý bí mật",
+            value=False,
+            key="defense_constant_time",
+        )
+
+        side_channel_review = st.checkbox(
+            "Có xem xét side-channel như timing/cache/power",
+            value=False,
+            key="defense_side_channel",
+        )
+
+        library_choice = st.radio(
+            "Cách triển khai",
+            [
+                "Dùng thư viện mật mã trưởng thành",
+                "Tự viết để học, không dùng production",
+                "Tự viết và định dùng production",
+            ],
+            index=0,
+            key="defense_library_choice",
+        )
+
+        deployment_context = st.radio(
+            "Mục tiêu sử dụng",
+            [
+                "Toy demo để học",
+                "Prototype nội bộ",
+                "Production / ví thật / hệ thống thật",
+            ],
+            index=0,
+            key="defense_deployment_context",
+            help="Cùng một lựa chọn kỹ thuật nhưng rủi ro rất khác nhau tùy dùng để học hay dùng trong hệ thật.",
+        )
+
+        external_audit = st.checkbox(
+            "Có review/audit độc lập nếu dùng production",
+            value=False,
+            key="defense_external_audit",
+        )
+
+        risk_score = 0
+        risk_notes = []
+        fatal_findings = []
+        must_fix = []
+
+        # ---------------- NONCE RISK ----------------
+        if nonce_strategy == "RFC6979-style deterministic nonce":
+            risk_score += 5
+            risk_notes.append("RFC6979-style giúp giảm phụ thuộc vào nguồn random bên ngoài.")
+        elif nonce_strategy == "Random nonce từ CSPRNG tốt":
+            risk_score += 15
+            risk_notes.append("Random nonce có thể ổn nếu CSPRNG thật sự tốt và không bị lệch.")
+        elif nonce_strategy == "Random thường / seed yếu":
+            risk_score += 45
+            risk_notes.append("Random yếu hoặc seed yếu có thể làm nonce bị đoán hoặc có bias.")
+            must_fix.append("Thay random thường/seed yếu bằng RFC6979-style hoặc CSPRNG đạt chuẩn.")
+            if deployment_context == "Production / ví thật / hệ thống thật":
+                fatal_findings.append("Production không được dùng random thường hoặc seed yếu cho nonce ECDSA.")
+        elif nonce_strategy == "Cố định hoặc có thể dùng lại k":
+            risk_score += 90
+            risk_notes.append("Dùng lại nonce là lỗi nghiêm trọng, có thể làm lộ private key.")
+            fatal_findings.append("Nonce cố định hoặc có thể bị reuse: private key có thể bị khôi phục.")
+            must_fix.append("Bắt buộc sửa nonce generation trước mọi thứ khác.")
+
+        if not no_reuse_policy:
+            risk_score += 35
+            risk_notes.append("Không có cơ chế chống reuse nonce là rủi ro lớn.")
+            must_fix.append("Thêm cơ chế đảm bảo mỗi chữ ký không dùng lại nonce với message khác.")
+
+        # ---------------- IMPLEMENTATION RISK ----------------
+        if library_choice == "Dùng thư viện mật mã trưởng thành":
+            risk_notes.append("Dùng thư viện trưởng thành là hướng đúng cho hệ thật.")
+        elif library_choice == "Tự viết để học, không dùng production":
+            risk_score += 10
+            risk_notes.append("Toy implementation dùng để học thì ổn, miễn là không dùng cho sản phẩm thật.")
+        elif library_choice == "Tự viết và định dùng production":
+            risk_score += 75
+            risk_notes.append("Tự viết crypto production là rủi ro cực cao nếu không có audit nghiêm túc.")
+            fatal_findings.append("Tự viết ECDSA production mà không có audit là lựa chọn nguy hiểm.")
+            must_fix.append("Không dùng toy/self-written crypto cho production; chuyển sang thư viện trưởng thành.")
+
+        # Constant-time nên xét cùng library_choice.
+        if library_choice == "Dùng thư viện mật mã trưởng thành":
+            if not constant_time:
+                risk_score += 10
+                risk_notes.append(
+                    "Nếu dùng thư viện trưởng thành, cần kiểm tra thư viện đó có cam kết constant-time cho phần xử lý bí mật hay không."
+                )
+                must_fix.append("Kiểm tra tài liệu thư viện về constant-time và side-channel hardening.")
+        else:
+            if not constant_time:
+                risk_score += 25
+                risk_notes.append("Tự viết mà không constant-time có thể rò thông tin qua timing side-channel.")
+                must_fix.append("Không tự viết scalar multiplication/signing phụ thuộc dữ liệu bí mật theo thời gian chạy.")
+
+        if not side_channel_review:
+            risk_score += 15
+            risk_notes.append("Không xem xét side-channel khiến hệ thống dễ bị tấn công ngoài mô hình toán học.")
+            if deployment_context == "Production / ví thật / hệ thống thật":
+                must_fix.append("Production cần review side-channel: timing, cache, power, memory access.")
+
+        if not test_vectors:
+            risk_score += 10
+            risk_notes.append("Thiếu test vector làm tăng nguy cơ sai implementation.")
+            must_fix.append("Thêm test vector chuẩn và test edge-case cho signing/verification.")
+
+        if deployment_context == "Production / ví thật / hệ thống thật":
+            risk_score += 15
+            risk_notes.append("Production có tiêu chuẩn cao hơn toy demo/prototype.")
+            if not external_audit:
+                risk_score += 25
+                risk_notes.append("Production crypto nên có review/audit độc lập.")
+                must_fix.append("Cần review/audit độc lập trước khi dùng trong hệ thật.")
+
+        elif deployment_context == "Prototype nội bộ":
+            risk_score += 5
+            risk_notes.append("Prototype nội bộ vẫn cần tránh thói quen nguy hiểm, nhất là nonce yếu hoặc self-written crypto.")
+
+        elif deployment_context == "Toy demo để học":
+            risk_notes.append("Toy demo để học có thể chấp nhận đơn giản hóa, miễn là ghi rõ không dùng production.")
+
+        risk_score = min(risk_score, 100)
+
+        if fatal_findings:
+            with st.expander("🚨 Lỗi chí mạng cần sửa ngay", expanded=True):
+                for item in fatal_findings:
+                    st.error(item)
+
+        if must_fix:
+            with st.expander("🛠️ Việc nên sửa trước", expanded=True):
+                for item in must_fix:
+                    st.write(f"- {item}")
+
+        # ---------------- RISK GATES ----------------
+        if fatal_findings:
+            verdict = "🚨 Critical: lỗi chí mạng"
+            verdict_msg = "Có lỗi thuộc nhóm một phát có thể làm lộ private key. Phải sửa trước khi bàn đến điểm số."
+            risk_score = max(risk_score, 90)
+        elif risk_score >= 80:
+            verdict = "🚨 Rủi ro cực cao"
+            verdict_msg = "Thiết kế này có khả năng làm lộ private key nếu dùng trong hệ thật."
+        elif risk_score >= 50:
+            verdict = "⚠️ Rủi ro cao"
+            verdict_msg = "Cần sửa nghiêm túc trước khi nghĩ đến môi trường thật."
+        elif risk_score >= 25:
+            verdict = "🟡 Rủi ro trung bình"
+            verdict_msg = "Có vài điểm ổn, nhưng vẫn còn lỗ hổng engineering."
+        else:
+            verdict = "🟢 Rủi ro thấp trong cấu hình này"
+            verdict_msg = "Cấu hình nhìn hợp lý hơn, nhưng vẫn cần audit nếu là production."
+
+    col_metric1, col_metric2 = st.columns(2)
+
+    with col_metric1:
+        st.metric("Điểm rủi ro minh họa", f"{risk_score}/100")
+
+    with col_metric2:
+        st.metric("Đánh giá", verdict)
+
+    if risk_score >= 50:
+        st.error(verdict_msg)
+    elif risk_score >= 25:
+        st.warning(verdict_msg)
+    else:
+        st.success(verdict_msg)
+
+    if risk_notes:
+        with st.expander("🔍 Vì sao app đánh giá như vậy?", expanded=True):
+            for note in risk_notes:
+                st.write(f"- {note}")
+
+    st.markdown("### Bảng nguyên tắc phòng thủ")
+
+    defense_rows = [
+        {
+            "Nguyên tắc": "Không reuse nonce k",
+            "Nếu làm sai thì sao?": "Hai chữ ký dùng cùng k có thể làm lộ k và private key d.",
+            "Liên hệ": "Page 7 — reused nonce attack",
+        },
+        {
+            "Nguyên tắc": "Không để lộ nonce k",
+            "Nếu làm sai thì sao?": "Chỉ một chữ ký với known nonce cũng có thể làm lộ d.",
+            "Liên hệ": "Page 7 — known nonce attack",
+        },
+        {
+            "Nguyên tắc": "RFC6979-style deterministic nonce",
+            "Nếu làm sai thì sao?": "Random yếu hoặc bị bias có thể tạo nonce dễ đoán.",
+            "Liên hệ": "Giảm phụ thuộc vào RNG bên ngoài",
+        },
+        {
+            "Nguyên tắc": "Constant-time implementation",
+            "Nếu làm sai thì sao?": "Thời gian chạy có thể rò bit bí mật.",
+            "Liên hệ": "Timing side-channel",
+        },
+        {
+            "Nguyên tắc": "Side-channel awareness",
+            "Nếu làm sai thì sao?": "Cache, power, timing có thể rò một phần nonce/private key.",
+            "Liên hệ": "Partial nonce leakage",
+        },
+        {
+            "Nguyên tắc": "Dùng thư viện trưởng thành",
+            "Nếu làm sai thì sao?": "Toy crypto dễ sai ở edge-case, validation, timing và randomness.",
+            "Liên hệ": "Secure engineering",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(defense_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.info(
+        "Checklist này không phải security audit thật. "
+        "Nó chỉ giúp người học nối Page 7 với thực tế triển khai: ECDSA an toàn không chỉ vì ECDLP khó, "
+        "mà còn vì nonce và implementation phải đúng kỷ luật."
+    )
+
+def render_shamir_optimization_tab():
+    st.markdown("## 2. Shamir's trick: tối ưu bước verify ECDSA")
+
+    st.markdown(
+        """
+        Trong ECDSA verification, ta cần tính:
+
+        """
+    )
+
+    st.latex(r"P = u_1G + u_2Q")
+
+    st.markdown(
+        """
+        Cách trực tiếp:
+
+        ```text
+        tính u1G riêng
+        tính u2Q riêng
+        cộng hai điểm lại
+        ```
+
+        Shamir's trick tối ưu bằng cách xử lý hai phép nhân điểm cùng lúc.
+        Mục tiêu là giảm số phép toán điểm trong bước verify.
+
+        **Quan trọng:** đây là tối ưu hiệu năng, không phải cơ chế bảo mật chính.
+        """
+    )
+
+    st.warning(
+        "Shamir's trick không làm ECDSA an toàn hơn trước nonce attack. "
+        "Nó chỉ giúp tính u1G + u2Q hiệu quả hơn trong verification."
+    )
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        d_for_q = int(st.number_input(
+            "Private key mô phỏng để tạo Q = dG",
+            min_value=1,
+            max_value=ORDER_N - 1,
+            value=min(5, ORDER_N - 1),
+            key="shamir_d_for_q",
+        ))
+
+    with col2:
+        u1_demo = int(st.number_input(
+            "Hệ số u1",
+            min_value=1,
+            value=13,
+            key="shamir_u1",
+        ))
+
+    with col3:
+        u2_demo = int(st.number_input(
+            "Hệ số u2",
+            min_value=1,
+            value=19,
+            key="shamir_u2",
+        ))
+
+    Q_demo = ECDSA_PARAMS.curve.scalar_mul(d_for_q, ECDSA_PARAMS.G)
+
+    setup_rows = [
+        {
+            "Thành phần": "G",
+            "Giá trị": point_to_text(ECDSA_PARAMS.G),
+            "Ý nghĩa": "Điểm sinh cố định.",
+        },
+        {
+            "Thành phần": "Q = dG",
+            "Giá trị": point_to_text(Q_demo),
+            "Ý nghĩa": "Public key mô phỏng dùng trong verify.",
+        },
+        {
+            "Thành phần": "u1",
+            "Giá trị": u1_demo,
+            "Ý nghĩa": "Hệ số phụ thuộc vào hash message trong ECDSA verify.",
+        },
+        {
+            "Thành phần": "u2",
+            "Giá trị": u2_demo,
+            "Ý nghĩa": "Hệ số phụ thuộc vào chữ ký r trong ECDSA verify.",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(setup_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    if st.button("📊 So sánh cách trực tiếp và Shamir's trick", use_container_width=True, key="run_shamir_page8"):
+        try:
+            ECDSA_PARAMS.curve.reset_counters()
+            p_naive = naive_mul_add(
+                ECDSA_PARAMS.curve,
+                u1_demo,
+                ECDSA_PARAMS.G,
+                u2_demo,
+                Q_demo,
+            )
+            naive_add = ECDSA_PARAMS.curve.add_count
+            naive_double = ECDSA_PARAMS.curve.double_count
+
+            ECDSA_PARAMS.curve.reset_counters()
+            p_shamir = shamir_mul(
+                ECDSA_PARAMS.curve,
+                u1_demo,
+                ECDSA_PARAMS.G,
+                u2_demo,
+                Q_demo,
+            )
+            shamir_add = ECDSA_PARAMS.curve.add_count
+            shamir_double = ECDSA_PARAMS.curve.double_count
+
+        except Exception as exc:
+            st.error(f"Lỗi khi chạy so sánh Shamir: {exc}")
+            return
+
+        result_rows = [
+            {
+                "Cách làm": "Trực tiếp",
+                "Kết quả P": point_to_text(p_naive),
+                "Cộng điểm": naive_add,
+                "Nhân đôi điểm": naive_double,
+                "Tổng phép toán đếm được": naive_add + naive_double,
+            },
+            {
+                "Cách làm": "Shamir's trick",
+                "Kết quả P": point_to_text(p_shamir),
+                "Cộng điểm": shamir_add,
+                "Nhân đôi điểm": shamir_double,
+                "Tổng phép toán đếm được": shamir_add + shamir_double,
+            },
+        ]
+
+        result_df = pd.DataFrame(result_rows)
+
+        st.dataframe(
+            result_df,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        chart_rows = [
+            {
+                "Cách làm": "Trực tiếp",
+                "Phép toán": "Cộng điểm",
+                "Số lượng": naive_add,
+            },
+            {
+                "Cách làm": "Trực tiếp",
+                "Phép toán": "Nhân đôi điểm",
+                "Số lượng": naive_double,
+            },
+            {
+                "Cách làm": "Shamir's trick",
+                "Phép toán": "Cộng điểm",
+                "Số lượng": shamir_add,
+            },
+            {
+                "Cách làm": "Shamir's trick",
+                "Phép toán": "Nhân đôi điểm",
+                "Số lượng": shamir_double,
+            },
+        ]
+
+        fig = px.bar(
+            pd.DataFrame(chart_rows),
+            x="Cách làm",
+            y="Số lượng",
+            color="Phép toán",
+            barmode="group",
+            text_auto=True,
+            title="So sánh số phép toán điểm",
+        )
+
+        fig.update_layout(
+            height=520,
+            xaxis_title="Cách làm",
+            yaxis_title="Số phép toán",
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        if p_naive == p_shamir:
+            st.success(
+                "Hai cách cho cùng kết quả P. Shamir's trick là tối ưu cách tính, không đổi ý nghĩa toán học."
+            )
+        else:
+            st.error(
+                "Hai cách cho kết quả khác nhau. Cần kiểm tra implementation của naive_mul_add hoặc shamir_mul."
+            )
+
+        naive_total = naive_add + naive_double
+        shamir_total = shamir_add + shamir_double
+
+        if shamir_total < naive_total:
+            saved = naive_total - shamir_total
+            st.info(f"Trong lượt chạy này, Shamir's trick giảm được {saved} phép toán đếm được.")
+        elif shamir_total == naive_total:
+            st.info(
+                "Trong lượt chạy này, hai cách có tổng phép toán bằng nhau. "
+                "Với tham số khác, Shamir's trick có thể thể hiện lợi thế rõ hơn."
+            )
+        else:
+            st.warning(
+                "Trong lượt chạy này, Shamir's trick không ít phép toán hơn theo bộ đếm toy. "
+                "Điều này có thể xảy ra với tham số nhỏ hoặc implementation demo."
+            )
 
 # ============================================================
 # PAGE 8
 # ============================================================
-def demo_shamir_trick():
-    st.title("8. Thủ thuật Shamir")
+
+def demo_nonce_defense_notes():
+    st.title("8. Phòng thủ và tối ưu")
+
     render_page_intro(
-        "Có thể tối ưu ECDSA verification không?",
-        "Bước kiểm tra chữ ký cần tính biểu thức u1G + u2Q.",
-        "Demo so sánh cách tính trực tiếp với thủ thuật Shamir để thấy có thể giảm số phép toán.",
+        "Muốn dùng ECDSA thật thì cần kỷ luật triển khai gì?",
+        "Page 7 cho thấy nonce sai có thể làm lộ private key. Page này nối phần mật mã học với secure engineering và tối ưu verification.",
+        "Tab 1 là checklist phòng thủ triển khai ECDSA; Tab 2 là demo Shamir's trick để tối ưu phép tính u1G + u2Q trong verification.",
     )
 
-    st.warning("Đây là demo tối ưu mô phỏng. Nó là phần bonus, không phải trọng tâm quyền sở hữu Bitcoin.")
+    st.warning(
+        "Page này không biến toy code thành production crypto. "
+        "Nó chỉ cho thấy những nguyên tắc engineering cần nhớ khi đi từ công thức ECDSA sang hệ thống thật."
+    )
 
     render_term_notes([
-        ("Kiểm tra", "bước kiểm tra chữ ký."),
-        ("u1G + u2Q", "biểu thức cần tính trong bước kiểm tra ECDSA."),
-        ("Trực tiếp", "cách làm trực tiếp: tính từng phần riêng rồi cộng lại."),
-        ("Shamir", "mẹo tính đồng thời hai phép nhân điểm để giảm số phép toán."),
+        (
+            "Nonce discipline",
+            "Kỷ luật quản lý nonce trong ECDSA: nonce k phải không lặp lại, không bị lộ, không dễ đoán và không bị bias."
+        ),
+        (
+            "RFC6979-style",
+            "Cách sinh nonce xác định từ private key và message, giúp giảm rủi ro do nguồn random yếu hoặc bị lỗi."
+        ),
+        (
+            "CSPRNG",
+            "Cryptographically Secure Pseudo-Random Number Generator: bộ sinh số ngẫu nhiên đủ mạnh cho mật mã. Random thường không đủ an toàn để sinh nonce/khóa."
+        ),
+        (
+            "Threat model",
+            "Mô hình mối đe dọa: xác định attacker có thể quan sát gì, đo gì, khai thác gì, ví dụ nhiều chữ ký, timing, cache hoặc lỗi tự viết crypto."
+        ),
+        (
+            "Constant-time",
+            "Cách viết code sao cho thời gian chạy không phụ thuộc vào dữ liệu bí mật như private key d hoặc nonce k."
+        ),
+        (
+            "Side-channel",
+            "Kênh rò rỉ phụ ngoài output chính, ví dụ thời gian chạy, cache, điện năng, mẫu truy cập bộ nhớ hoặc log/debug."
+        ),
+        (
+            "Partial nonce leakage",
+            "Nonce k không bị lộ toàn bộ, nhưng rò một phần qua nhiều chữ ký. Trường hợp này vẫn có thể nguy hiểm, nhất là khi kết hợp với các tấn công nâng cao."
+        ),
+        (
+            "Test vector",
+            "Bộ input-output chuẩn dùng để kiểm tra implementation. Ví dụ: private key, message, nonce và chữ ký kỳ vọng."
+        ),
+        (
+            "Security audit",
+            "Quá trình review độc lập để tìm lỗi thiết kế, lỗi implementation, lỗi side-channel, lỗi dependency hoặc lỗi cấu hình bảo mật."
+        ),
+        (
+            "Risk gate / Fatal finding",
+            "Điều kiện lỗi chí mạng. Nếu gặp lỗi như reuse nonce hoặc tự viết crypto production không audit, app phải báo critical ngay thay vì chỉ cộng điểm nhẹ."
+        ),
+        (
+            "Toy / Prototype / Production",
+            "Toy là code để học, prototype là thử nghiệm nội bộ, production là hệ thật. Cùng một lỗi nhưng trong production sẽ nghiêm trọng hơn rất nhiều."
+        ),
+        (
+            "Scalar multiplication",
+            "Phép nhân điểm như dG hoặc kG trong ECC. Đây là phép toán lõi và thường cần được triển khai cẩn thận để tránh rò rỉ side-channel."
+        ),
+        (
+            "Thư viện trưởng thành",
+            "Thư viện mật mã được dùng rộng rãi, có test, audit, xử lý edge-case và thường có chú ý tới constant-time/side-channel."
+        ),
+        (
+            "Shamir's trick",
+            "Kỹ thuật tính đồng thời u1G + u2Q để tối ưu ECDSA verification. Đây là tối ưu hiệu năng, không phải phòng thủ nonce attack."
+        ),
     ])
 
-    col1, col2 = st.columns(2)
-    with col1:
-        u1_demo = int(st.number_input("u1", value=13, min_value=1))
-    with col2:
-        u2_demo = int(st.number_input("u2", value=19, min_value=1))
+    tab_defense, tab_shamir = st.tabs([
+        "🛡️ Phòng thủ triển khai",
+        "⚡ Shamir's trick",
+    ])
 
-    Q_demo = ECDSA_PARAMS.curve.scalar_mul(5, ECDSA_PARAMS.G)
-    st.caption(f"Q = 5G = {point_to_text(Q_demo)}")
+    with tab_defense:
+        render_ecdsa_defense_checklist_tab()
 
-    if st.button("📊 Chạy so sánh", use_container_width=True):
-        ECDSA_PARAMS.curve.reset_counters()
-        p_naive = naive_mul_add(ECDSA_PARAMS.curve, u1_demo, ECDSA_PARAMS.G, u2_demo, Q_demo)
-        naive_add, naive_double = ECDSA_PARAMS.curve.add_count, ECDSA_PARAMS.curve.double_count
-
-        ECDSA_PARAMS.curve.reset_counters()
-        p_shamir = shamir_mul(ECDSA_PARAMS.curve, u1_demo, ECDSA_PARAMS.G, u2_demo, Q_demo)
-        shamir_add, shamir_double = ECDSA_PARAMS.curve.add_count, ECDSA_PARAMS.curve.double_count
-
-        df = pd.DataFrame(
-            {
-                "Cách làm": ["Trực tiếp", "Trực tiếp", "Shamir", "Shamir"],
-                "Phép toán": ["Cộng điểm", "Nhân đôi điểm", "Cộng điểm", "Nhân đôi điểm"],
-                "Số lượng": [naive_add, naive_double, shamir_add, shamir_double],
-            }
-        )
-        fig = px.bar(df, x="Cách làm", y="Số lượng", color="Phép toán", barmode="group", text_auto=True)
-        st.plotly_chart(fig, use_container_width=True)
-
-        st.write(f"Kết quả cách trực tiếp: {point_to_text(p_naive)}")
-        st.write(f"Kết quả Shamir: {point_to_text(p_shamir)}")
-
-        if p_naive == p_shamir:
-            st.success("Hai cách cho cùng kết quả.")
-        else:
-            st.error("Kết quả khác nhau. Kiểm tra implementation.")
+    with tab_shamir:
+        render_shamir_optimization_tab()
 
     render_learning_summary(
-        "Thủ thuật Shamir",
+        "Phòng thủ và tối ưu",
         [
-            "Shamir's trick tối ưu tính u1G + u2Q.",
-            "Đây là phần tối ưu thuật toán/hiệu năng.",
-            "Không nên để phần này lấn át phần ký giao dịch và chứng minh quyền chi tiêu.",
+            "Page 7 cho thấy ECDSA có thể lộ private key nếu nonce k bị dùng lại, bị lộ hoặc rò một phần.",
+            "Phòng thủ ECDSA cần nonce discipline: không reuse nonce, dùng RFC6979-style hoặc CSPRNG tốt, và không để nonce rò qua side-channel.",
+            "Constant-time implementation và side-channel awareness là phần engineering quan trọng, không phải trang trí cho sang.",
+            "Toy code chỉ dùng để học; hệ thống thật phải dùng thư viện mật mã trưởng thành và được kiểm chứng.",
+            "Shamir's trick tối ưu bước verify bằng cách tính u1G + u2Q hiệu quả hơn.",
+            "Shamir's trick là tối ưu hiệu năng, không phải cơ chế phòng thủ nonce attack.",
         ],
     )
 
@@ -3486,137 +5652,244 @@ def benchmark_current_openssl_signature(iterations: int):
 
 
 def demo_openssl_summary():
-    st.title("9. Demo OpenSSL secp256k1")
+    st.title("9. OpenSSL secp256k1 và kết luận")
+
     render_page_intro(
-        "Mô phỏng nhỏ liên hệ công cụ thật thế nào?",
-        "Toy curve giúp hiểu toán; OpenSSL secp256k1 cho thấy việc ký và kiểm tra chữ ký bằng công cụ thật.",
-        "Người dùng tự sinh khóa, ký nội dung gốc, rồi tự sửa nội dung để thấy chữ ký cũ bị từ chối.",
+        "Toy demo liên hệ công cụ thật như thế nào?",
+        "Các page trước dùng toy curve để nhìn rõ toán học. Page này dùng OpenSSL với secp256k1 để đối chiếu luồng ký và kiểm tra chữ ký bằng công cụ thật.",
+        "Người dùng sinh key secp256k1, ký nội dung gốc, sửa nội dung để verify fail, rồi đọc lại kết luận toàn bộ đề tài.",
     )
 
     st.warning(
-        "Demo này ký một đoạn chữ/file bằng secp256k1. Đây không phải ký giao dịch Bitcoin đầy đủ, "
-        "không có Bitcoin Script và không có quy tắc sighash/consensus của Bitcoin thật."
+        "Demo này ký một đoạn text/file bằng OpenSSL secp256k1. "
+        "Đây không phải ký giao dịch Bitcoin đầy đủ: không có Bitcoin Script, không có sighash, "
+        "không có transaction serialization thật và không có consensus/network."
     )
 
     render_term_notes([
-        ("OpenSSL", "công cụ/thư viện mật mã phổ biến, dùng để chạy thử ký và kiểm tra chữ ký thật."),
-        ("secp256k1", "đường cong elliptic Bitcoin dùng cho ECDSA truyền thống."),
-        ("Nội dung gốc", "dữ liệu được ký ban đầu."),
-        ("Nội dung kiểm tra", "dữ liệu đem đi kiểm tra với chữ ký cũ. Nếu sửa khác nội dung gốc thì phải bị từ chối."),
-        ("Tính toàn vẹn (integrity)", "chỉ cần dữ liệu bị sửa sau khi ký, chữ ký cũ sẽ không còn hợp lệ."),
+        (
+            "OpenSSL",
+            "Công cụ/thư viện mật mã phổ biến, dùng ở đây để chạy ký và kiểm tra chữ ký bằng công cụ thật."
+        ),
+        (
+            "secp256k1",
+            "Đường cong elliptic mà Bitcoin truyền thống dùng cho ECDSA."
+        ),
+        (
+            "Private key",
+            "Khóa bí mật dùng để ký. Trong demo này là file tạm do OpenSSL sinh ra."
+        ),
+        (
+            "Public key",
+            "Khóa công khai dùng để kiểm tra chữ ký."
+        ),
+        (
+            "Signature",
+            "Chữ ký số được tạo từ nội dung gốc và private key."
+        ),
+        (
+            "Integrity / tính toàn vẹn",
+            "Nếu dữ liệu bị sửa sau khi ký, chữ ký cũ không còn hợp lệ."
+        ),
+        (
+            "Toy demo vs công cụ thật",
+            "Toy demo giúp hiểu từng bước toán học; OpenSSL cho thấy cùng ý tưởng ký/verify tồn tại trong công cụ mật mã thật."
+        ),
     ])
 
     init_openssl_lab_state()
     lab = st.session_state.openssl_lab
 
     openssl_path = get_openssl_path()
-    if openssl_path:
-        st.info(f"OpenSSL hiện tại: `{openssl_version(openssl_path)}`")
-    else:
-        st.error("Không tìm thấy OpenSSL trong PATH. Hãy cài OpenSSL hoặc thêm vào PATH trước.")
 
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "1️⃣ Sinh khóa",
-        "2️⃣ Ký nội dung gốc",
-        "3️⃣ Tự sửa và kiểm tra",
-        "4️⃣ Đo thời gian",
+    if openssl_path:
+        st.success(f"Đã tìm thấy OpenSSL: `{openssl_version(openssl_path)}`")
+    else:
+        st.error(
+            "Không tìm thấy OpenSSL trong PATH. "
+            "Page này cần OpenSSL để sinh key, ký và verify bằng công cụ thật."
+        )
+
+    st.markdown("## Vai trò của Page 9")
+
+    role_rows = [
+        {
+            "Vai trò": "Đối chiếu với công cụ thật",
+            "Ý nghĩa": "Các page trước dùng toy curve; page này dùng OpenSSL secp256k1 để chạy ký/verify thật trên file/message.",
+        },
+        {
+            "Vai trò": "Kiểm tra tính toàn vẹn",
+            "Ý nghĩa": "Giữ nguyên message thì verify pass; sửa message sau khi ký thì verify fail.",
+        },
+        {
+            "Vai trò": "Tổng kết đề tài",
+            "Ý nghĩa": "Chốt lại ECC, ECDLP, ECDSA, Bitcoin case study và bài học triển khai an toàn.",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(role_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    tab_key, tab_sign, tab_verify, tab_bench, tab_conclusion = st.tabs([
+        "1️⃣ Sinh key thật",
+        "2️⃣ Ký nội dung",
+        "3️⃣ Sửa và verify",
+        "4️⃣ Mini benchmark",
+        "5️⃣ Kết luận đề tài",
     ])
 
     # ---------------- TAB 1 ----------------
-    with tab1:
-        st.subheader("1. Sinh cặp khóa secp256k1")
+    with tab_key:
+        st.subheader("1. Sinh cặp khóa secp256k1 bằng OpenSSL")
 
         st.markdown(
             """
-            Ở bước này, OpenSSL tạo ra:
+            Ở bước này, OpenSSL tạo ra một cặp khóa trên curve `secp256k1`:
 
-            - **Private key**: khóa bí mật, dùng để ký.
-            - **Public key**: khóa công khai, dùng để kiểm tra chữ ký.
+            ```text
+            private key: dùng để ký
+            public key : dùng để verify
+            ```
 
-            Đây là key tạm nằm trong thư mục tạm của app, không phải ví Bitcoin thật.
+            Khóa nằm trong thư mục tạm của app. Đây không phải ví Bitcoin thật.
             """
         )
 
-        col1, col2 = st.columns(2)
-        with col1:
+        col_action, col_reset = st.columns(2)
+
+        with col_action:
             if st.button("🔑 Sinh cặp khóa secp256k1", use_container_width=True):
                 generate_openssl_secp256k1_keys()
                 st.rerun()
 
-        with col2:
+        with col_reset:
             if st.button("🧹 Reset OpenSSL lab", use_container_width=True):
                 reset_openssl_lab_state()
                 st.rerun()
 
-        st.write(f"Đã có khóa chưa? **{lab['keys_generated']}**")
+        key_status_rows = [
+            {
+                "Mục": "Đã có key chưa?",
+                "Giá trị": lab["keys_generated"],
+            },
+            {
+                "Mục": "Private key file",
+                "Giá trị": lab["private_key"],
+            },
+            {
+                "Mục": "Public key file",
+                "Giá trị": lab["public_key"],
+            },
+        ]
+
+        st.dataframe(
+            pd.DataFrame(key_status_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
 
         if lab["keys_generated"]:
-            st.success("Đã có khóa. Chuyển sang tab 2 để ký nội dung gốc.")
-            with st.expander("Xem vị trí file tạm", expanded=False):
-                st.code(
-                    f"Private key: {lab['private_key']}\n"
-                    f"Public key : {lab['public_key']}",
-                    language="text",
-                )
+            st.success("Đã có key. Sang tab 2 để ký nội dung gốc.")
+        else:
+            st.info("Bấm sinh key trước. Chưa có key thì chưa ký được.")
 
     # ---------------- TAB 2 ----------------
-    with tab2:
-        st.subheader("2. Ký nội dung gốc")
+    with tab_sign:
+        st.subheader("2. Ký nội dung gốc bằng private key")
 
         st.markdown(
             """
-            Hãy nhập nội dung gốc rồi bấm ký. Chữ ký sinh ra sẽ chỉ hợp lệ với đúng nội dung này.
-            Sau đó sang tab 3 để thử giữ nguyên hoặc sửa nội dung.
+            Chữ ký số không ký một “ý định mơ hồ”, mà ký vào dữ liệu cụ thể.
+
+            Trong tab này:
+
+            ```text
+            message gốc + private key secp256k1
+            → OpenSSL tạo signature
+            ```
             """
         )
 
-        original_message = st.text_area(
-            "Nội dung gốc sẽ được ký",
-            value=lab["original_message"] or "Alice trả Bob 1 BTC mô phỏng",
-            height=120,
-        )
+        if not lab["keys_generated"]:
+            st.info("Chưa có key. Hãy sang tab 1 sinh key trước.")
+        else:
+            original_message = st.text_area(
+                "Nội dung gốc sẽ được ký",
+                value=lab["original_message"] or "Alice trả Bob 1 BTC mô phỏng",
+                height=130,
+                key="openssl_original_message_input",
+            )
 
-        if st.button("✍️ Ký nội dung gốc bằng OpenSSL", use_container_width=True):
-            sign_original_message_with_openssl(original_message)
-            st.rerun()
+            if st.button("✍️ Ký nội dung gốc bằng OpenSSL", use_container_width=True):
+                if not original_message.strip():
+                    st.warning("Nội dung gốc không nên để trống.")
+                else:
+                    sign_original_message_with_openssl(original_message)
+                    st.rerun()
 
-        if lab["message_signed"]:
-            st.success("Đã có chữ ký cho nội dung gốc.")
-            st.caption("Phần đầu chữ ký dạng hex:")
-            st.code(lab["signature_hex"][:160] + "...", language="text")
+            if lab["message_signed"]:
+                st.success("Đã có chữ ký cho nội dung gốc.")
+                st.markdown("#### Chữ ký dạng hex, rút gọn")
+                st.code(lab["signature_hex"][:200] + "...", language="text")
+
+                signed_rows = [
+                    {
+                        "Mục": "Nội dung đã ký",
+                        "Giá trị": lab["original_message"],
+                    },
+                    {
+                        "Mục": "Signature file",
+                        "Giá trị": lab["signature_file"],
+                    },
+                ]
+
+                st.dataframe(
+                    pd.DataFrame(signed_rows),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.info("Sau khi ký xong, sang tab 3 để kiểm tra nội dung gốc và nội dung bị sửa.")
 
     # ---------------- TAB 3 ----------------
-    with tab3:
-        st.subheader("3. Tự sửa nội dung và kiểm tra chữ ký cũ")
+    with tab_verify:
+        st.subheader("3. Sửa nội dung và kiểm tra chữ ký cũ")
 
         st.markdown(
             """
-            Đây là phần trực quan nhất:
+            Đây là phần quan trọng nhất của Page 9.
 
-            - Nếu **nội dung kiểm tra giống nội dung gốc**, chữ ký phải hợp lệ.
-            - Nếu **sửa dù chỉ một ký tự**, chữ ký cũ phải bị từ chối.
+            Chữ ký được tạo cho **nội dung gốc**. Sau đó ta dùng **cùng chữ ký cũ** để kiểm tra một nội dung bất kỳ:
+
+            ```text
+            nội dung giống gốc  → verify pass
+            nội dung bị sửa     → verify fail
+            ```
 
             Đây chính là tính toàn vẹn của chữ ký số.
             """
         )
 
         if not lab["message_signed"]:
-            st.info("Hãy sang tab 2 ký nội dung gốc trước.")
+            st.info("Chưa có chữ ký. Hãy sang tab 2 ký nội dung gốc trước.")
         else:
-            col1, col2 = st.columns(2)
+            col_original, col_verify = st.columns(2)
 
-            with col1:
+            with col_original:
                 st.markdown("#### Nội dung gốc đã ký")
                 st.text_area(
                     "Nội dung gốc",
                     value=lab["original_message"],
-                    height=140,
+                    height=150,
                     disabled=True,
-                    key="openssl_original_display",
+                    key="openssl_original_display_final",
                 )
 
-            with col2:
-                st.markdown("#### Nội dung đem đi kiểm tra")
+            with col_verify:
+                st.markdown("#### Nội dung đem đi verify")
 
                 if "openssl_verify_message_next" in st.session_state:
                     st.session_state.openssl_verify_message = st.session_state.pop("openssl_verify_message_next")
@@ -3624,25 +5897,25 @@ def demo_openssl_summary():
                     st.session_state.openssl_verify_message = lab["original_message"]
 
                 verify_message = st.text_area(
-                    "Có thể giữ nguyên hoặc tự sửa để thử",
-                    height=140,
+                    "Có thể giữ nguyên hoặc tự sửa",
+                    height=150,
                     key="openssl_verify_message",
                 )
 
-            col_a, col_b, col_c = st.columns(3)
+            col_check, col_tamper, col_restore = st.columns(3)
 
-            with col_a:
-                if st.button("✅ Kiểm tra với nội dung hiện tại", use_container_width=True):
+            with col_check:
+                if st.button("✅ Verify nội dung hiện tại", use_container_width=True):
                     verify_message_with_old_signature(verify_message)
                     st.rerun()
 
-            with col_b:
+            with col_tamper:
                 if st.button("🧪 Tạo bản bị sửa mẫu", use_container_width=True):
                     st.session_state.openssl_verify_message_next = lab["original_message"] + " [đã bị sửa]"
                     st.rerun()
 
-            with col_c:
-                if st.button("↩️ Khôi phục giống nội dung gốc", use_container_width=True):
+            with col_restore:
+                if st.button("↩️ Khôi phục giống gốc", use_container_width=True):
                     st.session_state.openssl_verify_message_next = lab["original_message"]
                     st.rerun()
 
@@ -3650,94 +5923,216 @@ def demo_openssl_summary():
                 result = lab["last_verify"]
 
                 st.divider()
-                st.subheader("Kết quả kiểm tra")
+                st.markdown("### Kết quả verify")
 
                 result_rows = [
                     {
-                        "Mục": "Nội dung kiểm tra có giống nội dung gốc không?",
+                        "Câu hỏi": "Nội dung đem verify có giống nội dung gốc không?",
                         "Kết quả": result["same_as_original"],
                     },
                     {
-                        "Mục": "Chữ ký cũ có được chấp nhận không?",
+                        "Câu hỏi": "OpenSSL có chấp nhận chữ ký cũ không?",
                         "Kết quả": result["accepted"],
                     },
                     {
-                        "Mục": "Thông báo OpenSSL",
+                        "Câu hỏi": "Output từ OpenSSL",
                         "Kết quả": result["output"],
                     },
                 ]
-                st.dataframe(pd.DataFrame(result_rows), use_container_width=True)
+
+                st.dataframe(
+                    pd.DataFrame(result_rows),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
                 if result["accepted"]:
                     st.success(
-                        "Nội dung kiểm tra khớp chữ ký. Điều này thường xảy ra khi nó giống đúng nội dung gốc đã ký."
+                        "Verify thành công. Nội dung kiểm tra khớp với chữ ký cũ."
                     )
                 else:
                     st.error(
-                        "Nội dung kiểm tra không khớp chữ ký cũ. Nếu bạn đã sửa nội dung, đây là kết quả đúng."
+                        "Verify thất bại. Nếu nội dung đã bị sửa, đây là kết quả đúng: chữ ký cũ không còn hợp lệ."
                     )
 
                 st.info(
-                    "Liên hệ Bitcoin: nếu ai đó sửa số tiền hoặc người nhận sau khi giao dịch đã được ký, "
-                    "chữ ký cũ sẽ không còn khớp với dữ liệu giao dịch nữa, nên node sẽ từ chối."
+                    "Liên hệ Page 6: trong Bitcoin case study, nếu attacker sửa số tiền hoặc người nhận sau khi transaction đã ký, "
+                    "dữ liệu transaction thay đổi nên chữ ký cũ không còn khớp. Node phải từ chối."
                 )
 
     # ---------------- TAB 4 ----------------
-    with tab4:
-        st.subheader("4. Đo thời gian ký và kiểm tra chữ ký")
+    with tab_bench:
+        st.subheader("4. Mini benchmark cho chữ ký secp256k1 hiện tại")
 
         st.markdown(
             """
-            Phần này đo thời gian chạy OpenSSL trên máy hiện tại. Kết quả chỉ mang tính tham khảo vì còn phụ thuộc vào máy,
-            phiên bản OpenSSL và môi trường chạy.
+            Page 2 đã benchmark để so sánh RSA/DSA/ECDSA.  
+            Tab này chỉ đo nhanh thao tác ký và verify trong chính OpenSSL lab hiện tại.
+
+            Kết quả phụ thuộc máy, phiên bản OpenSSL và số lần chạy.
             """
         )
 
-        iterations = int(st.slider("Số lần chạy thử", min_value=1, max_value=100, value=10))
+        if not lab["message_signed"]:
+            st.info("Cần sinh key và ký nội dung gốc trước khi đo thời gian.")
+        else:
+            iterations = int(st.slider(
+                "Số lần chạy thử",
+                min_value=1,
+                max_value=100,
+                value=10,
+                key="openssl_local_benchmark_iterations",
+            ))
 
-        if st.button("📊 Đo thời gian", use_container_width=True):
-            result = benchmark_current_openssl_signature(iterations)
+            if st.button("📊 Đo thời gian ký/verify", use_container_width=True):
+                result = benchmark_current_openssl_signature(iterations)
 
-            if result is not None:
+                if result is not None:
+                    st.session_state["openssl_local_benchmark_result"] = result
+
+            if "openssl_local_benchmark_result" in st.session_state:
+                result = st.session_state["openssl_local_benchmark_result"]
+
+                bench_rows = [
+                    {"Chỉ số": "Số lần chạy", "Giá trị": result["iterations"]},
+                    {"Chỉ số": "Thời gian ký trung bình (ms/lần)", "Giá trị": f"{result['sign_avg_ms']:.4f}"},
+                    {"Chỉ số": "Thời gian verify trung bình (ms/lần)", "Giá trị": f"{result['verify_avg_ms']:.4f}"},
+                    {"Chỉ số": "Số lần ký mỗi giây", "Giá trị": f"{result['sign_ops_per_sec']:.2f}"},
+                    {"Chỉ số": "Số lần verify mỗi giây", "Giá trị": f"{result['verify_ops_per_sec']:.2f}"},
+                ]
+
                 st.dataframe(
-                    pd.DataFrame(
-                        [
-                            {"Chỉ số": "Số lần chạy", "Giá trị": result["iterations"]},
-                            {"Chỉ số": "Thời gian ký trung bình (ms/lần)", "Giá trị": f"{result['sign_avg_ms']:.4f}"},
-                            {"Chỉ số": "Thời gian kiểm tra trung bình (ms/lần)", "Giá trị": f"{result['verify_avg_ms']:.4f}"},
-                            {"Chỉ số": "Số lần ký mỗi giây", "Giá trị": f"{result['sign_ops_per_sec']:.2f}"},
-                            {"Chỉ số": "Số lần kiểm tra mỗi giây", "Giá trị": f"{result['verify_ops_per_sec']:.2f}"},
-                        ]
-                    ),
+                    pd.DataFrame(bench_rows),
                     use_container_width=True,
+                    hide_index=True,
                 )
 
-                fig_df = pd.DataFrame(
-                    [
-                        {"Phép toán": "Ký", "ms/lần": result["sign_avg_ms"]},
-                        {"Phép toán": "Kiểm tra", "ms/lần": result["verify_avg_ms"]},
-                    ]
-                )
+                fig_df = pd.DataFrame([
+                    {"Phép toán": "Ký", "ms/lần": result["sign_avg_ms"]},
+                    {"Phép toán": "Verify", "ms/lần": result["verify_avg_ms"]},
+                ])
+
                 fig = px.bar(
                     fig_df,
                     x="Phép toán",
                     y="ms/lần",
-                    title="OpenSSL secp256k1: thời gian ký và kiểm tra chữ ký",
+                    text_auto=True,
+                    title="OpenSSL secp256k1: thời gian ký và verify",
                 )
+
+                fig.update_layout(
+                    height=480,
+                    xaxis_title="Phép toán",
+                    yaxis_title="Milliseconds / lần",
+                )
+
                 st.plotly_chart(fig, use_container_width=True)
+
+                st.warning(
+                    "Đây chỉ là mini benchmark cho lab hiện tại, không thay thế benchmark chuẩn. "
+                    "Muốn so sánh RSA/ECDSA nhiều hệ thì xem Page 2."
+                )
+
+    # ---------------- TAB 5 ----------------
+    with tab_conclusion:
+        st.subheader("5. Kết luận toàn bộ đề tài")
+
+        st.markdown(
+            """
+            Sau khi đi qua toàn bộ app, mạch logic của đề tài nên được hiểu như sau:
+            """
+        )
+
+        conclusion_rows = [
+            {
+                "Mảnh ghép": "Public-key cryptography",
+                "Kết luận": "Ra đời để giải quyết trao đổi khóa, xác thực và chữ ký số trong hệ thống lớn.",
+            },
+            {
+                "Mảnh ghép": "ECC",
+                "Kết luận": "Là một nhánh public-key crypto dựa trên nhóm điểm của đường cong elliptic.",
+            },
+            {
+                "Mảnh ghép": "ECDLP",
+                "Kết luận": "Là bài toán khó đứng sau ECC: biết G và Q = dG thì khó tìm lại d.",
+            },
+            {
+                "Mảnh ghép": "ECDSA",
+                "Kết luận": "Là chữ ký số dựa trên ECC: private key ký, public key verify.",
+            },
+            {
+                "Mảnh ghép": "Bitcoin",
+                "Kết luận": "Là case study thực tế: ECDSA được dùng để chứng minh quyền tiêu UTXO.",
+            },
+            {
+                "Mảnh ghép": "Nonce attack",
+                "Kết luận": "ECDLP khó không cứu được hệ thống nếu nonce k bị reuse, bị lộ hoặc rò một phần.",
+            },
+            {
+                "Mảnh ghép": "Secure engineering",
+                "Kết luận": "An toàn thật cần nonce discipline, RFC6979-style/CSPRNG tốt, constant-time và thư viện trưởng thành.",
+            },
+            {
+                "Mảnh ghép": "OpenSSL",
+                "Kết luận": "Toy demo giúp hiểu toán; OpenSSL cho thấy cùng ý tưởng ký/verify chạy được bằng công cụ thật.",
+            },
+        ]
+
+        st.dataframe(
+            pd.DataFrame(conclusion_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown("### Một câu chốt để thuyết trình")
+
+        st.success(
+            "ECC cung cấp nền tảng khóa công khai hiệu quả dựa trên ECDLP; "
+            "ECDSA biến nền tảng đó thành cơ chế chữ ký số; "
+            "Bitcoin dùng ECDSA như một case study để chứng minh quyền chi tiêu UTXO; "
+            "và an toàn thực tế không chỉ đến từ toán học, mà còn đến từ triển khai đúng."
+        )
+
+        st.markdown("### Những giới hạn của demo")
+
+        limitation_rows = [
+            {
+                "Giới hạn": "Toy curve nhỏ",
+                "Ý nghĩa": "Các page toy giúp học toán, không đại diện cho độ an toàn thật.",
+            },
+            {
+                "Giới hạn": "Bitcoin case study giản lược",
+                "Ý nghĩa": "Có UTXO/signature/public key hash, nhưng không mô phỏng đầy đủ Bitcoin Script, sighash, consensus.",
+            },
+            {
+                "Giới hạn": "OpenSSL ký message/file",
+                "Ý nghĩa": "Đối chiếu công cụ thật, nhưng không phải ký một Bitcoin transaction thật.",
+            },
+            {
+                "Giới hạn": "Không demo lattice attack",
+                "Ý nghĩa": "Partial nonce leakage chỉ được giải thích ở mức lý thuyết để tránh lệch trọng tâm.",
+            },
+        ]
+
+        st.dataframe(
+            pd.DataFrame(limitation_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     render_openssl_action_log()
 
     render_learning_summary(
-        "OpenSSL",
+        "OpenSSL secp256k1 và kết luận",
         [
-            "secp256k1 là đường cong elliptic thật có liên quan trực tiếp đến Bitcoin truyền thống.",
-            "OpenSSL cho thấy ký/kiểm tra chữ ký không chỉ là toy code tự viết.",
-            "Chữ ký chỉ hợp lệ với đúng nội dung đã ký; sửa nội dung sẽ làm kiểm tra thất bại.",
-            "Không được nhầm ký một thông điệp đơn giản với ký giao dịch Bitcoin đầy đủ.",
+            "OpenSSL secp256k1 giúp đối chiếu toy demo với công cụ mật mã thật.",
+            "Sinh key, ký message và verify message cho thấy ECDSA không chỉ là công thức trên bảng.",
+            "Chữ ký chỉ hợp lệ với đúng dữ liệu đã ký; sửa dữ liệu sau khi ký làm verify thất bại.",
+            "Không được nhầm ký một message/file bằng OpenSSL với ký giao dịch Bitcoin đầy đủ.",
+            "ECC là nền tảng public-key crypto; ECDLP là bài toán khó; ECDSA là ứng dụng chữ ký số; Bitcoin là case study.",
+            "An toàn thực tế cần cả toán học đúng lẫn triển khai đúng: nonce discipline, constant-time và thư viện trưởng thành.",
         ],
     )
-
 
 # ============================================================
 # MAIN
@@ -3754,21 +6149,21 @@ def main():
     if page_id == 0:
         demo_big_picture()
     elif page_id == 1:
-        demo_ownership_in_bitcoin()
+        demo_symmetric_to_public_key()
     elif page_id == 2:
-        demo_ecc_toy_curve()
+        demo_public_key_systems_and_benchmark()
     elif page_id == 3:
-        demo_ecdlp_explanation()
+        demo_ecc_toy_curve()
     elif page_id == 4:
-        demo_ecdsa_sign_verify()
+        demo_ecdlp_explanation()
     elif page_id == 5:
-        demo_interactive_bitcoin_transaction_lab()
+        demo_ecdsa_sign_verify()
     elif page_id == 6:
-        demo_reused_nonce_attack()
+        demo_interactive_bitcoin_transaction_lab()
     elif page_id == 7:
-        demo_nonce_defense_notes()
+        demo_reused_nonce_attack()
     elif page_id == 8:
-        demo_shamir_trick()
+        demo_nonce_defense_notes()
     elif page_id == 9:
         demo_openssl_summary()
 
