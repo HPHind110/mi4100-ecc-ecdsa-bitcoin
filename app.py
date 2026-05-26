@@ -123,7 +123,7 @@ DEMOS = [
     {"id": 6, "title": "6. Tấn công ECDSA khi dùng lại nonce", "desc": "Tấn công tái sử dụng nonce"},
     {"id": 7, "title": "7. Ghi chú phòng thủ nonce", "desc": "Phòng thủ khi triển khai ECDSA"},
     {"id": 8, "title": "8. Thủ thuật Shamir", "desc": "Tối ưu bước kiểm tra chữ ký"},
-    {"id": 9, "title": "9. Demo OpenSSL secp256k1", "desc": "Liên hệ với công cụ mật mã thật"},
+    {"id": 9, "title": "9. Bonus: OpenSSL secp256k1", "desc": "Đối chiếu toy demo với công cụ thật"}
 ]
 
 if "page_id" not in st.session_state:
@@ -609,6 +609,47 @@ def can_run_reused_nonce_attack(msg1, msg2, h1, h2, r1, s1, r2, s2, n):
     if gcd(r1 % n, n) != 1:
         return False, f"r = {r1 % n} không khả nghịch modulo {n}."
     return True, ""
+
+
+def recover_private_key_from_known_nonce(h: int, r: int, s: int, k: int, n: int):
+    """Khôi phục private key d khi biết nonce k trong một chữ ký ECDSA.
+
+    Từ công thức:
+        s = k^(-1)(h + r*d) mod n
+
+    Suy ra:
+        d = (s*k - h) * r^(-1) mod n
+    """
+    r_inv = safe_mod_inverse(r, n)
+
+    if r_inv is None:
+        return None, "Không thể khôi phục vì r không có nghịch đảo modulo n."
+
+    d_recovered = ((s * k - h) * r_inv) % n
+    return d_recovered, ""
+
+
+def find_valid_nonce_for_messages(params, d: int, messages: list[str]):
+    """Tìm một nonce k có thể ký hợp lệ tất cả message trong toy demo.
+
+    Toy curve nhỏ nên một số k có thể rơi vào edge-case như r = 0 hoặc s = 0.
+    Hàm này giúp UI demo ổn định hơn.
+    """
+    for k in range(1, params.n):
+        ok_nonce, _ = validate_nonce(k, params.n)
+        if not ok_nonce:
+            continue
+
+        try:
+            signatures = [
+                sign(params, d, msg.encode("utf-8"), k=k)
+                for msg in messages
+            ]
+            return k, signatures
+        except Exception:
+            continue
+
+    return None, None
 
 
 # ============================================================
@@ -1130,9 +1171,9 @@ def demo_big_picture():
         },
         {
             "Bước": "9",
-            "Câu hỏi": "Demo liên hệ công cụ thật thế nào?",
-            "Ý chính": "Curve nhỏ để hiểu, OpenSSL secp256k1 để kiểm chứng",
-        },
+            "Câu hỏi": "Toy demo liên hệ công cụ thật thế nào?",
+            "Ý chính": "Bonus: đối chiếu với OpenSSL secp256k1",
+        }
     ]
     st.dataframe(pd.DataFrame(storyline), use_container_width=True)
 
@@ -2649,11 +2690,31 @@ def demo_reused_nonce_attack():
     st.latex(r"k' = (h_1 - h_2)(s_1 - s_2)^{-1} \pmod n")
     st.latex(r"d' = (s_1 k' - h_1)r^{-1} \pmod n")
 
+    # col_key, col_nonce = st.columns(2)
+    # with col_key:
+    #     d_victim = int(st.number_input("🔑 Khóa bí mật d", min_value=1, max_value=ORDER_N - 1, value=min(2, ORDER_N - 1)))
+    # with col_nonce:
+    #     k_reuse = int(st.number_input("🎲 Reused nonce k", min_value=1, max_value=ORDER_N - 1, value=min(4, ORDER_N - 1)))
+
     col_key, col_nonce = st.columns(2)
+
     with col_key:
-        d_victim = int(st.number_input("🔑 Khóa bí mật d", min_value=1, max_value=ORDER_N - 1, value=min(2, ORDER_N - 1)))
+        d_victim = int(st.number_input(
+            "🔑 Khóa bí mật d",
+            min_value=1,
+            max_value=ORDER_N - 1,
+            value=min(3, ORDER_N - 1),
+            help="Private key mô phỏng. Giá trị này không phải nguyên nhân trực tiếp gây lỗi nghịch đảo nonce.",
+        ))
+
     with col_nonce:
-        k_reuse = int(st.number_input("🎲 Reused nonce k", min_value=1, max_value=ORDER_N - 1, value=min(4, ORDER_N - 1)))
+        k_reuse = int(st.number_input(
+            "🎲 Nonce k",
+            min_value=1,
+            max_value=ORDER_N - 1,
+            value=min(5, ORDER_N - 1),
+            help="Nonce dùng khi ký. Nếu k bị lộ hoặc bị dùng lại, private key có thể bị khôi phục.",
+        ))
 
     col1, col2 = st.columns(2)
     with col1:
@@ -2661,66 +2722,214 @@ def demo_reused_nonce_attack():
     with col2:
         msg2 = st.text_input("Thông điệp 2", value="Thanh toan 2 BTC cho Bob", max_chars=120)
 
-    if st.button("⚡ Chạy tấn công dùng lại nonce", use_container_width=True):
+    attack_mode = st.radio(
+        "Chọn kiểu tấn công nonce",
+        [
+            "Reused nonce: dùng lại k cho hai chữ ký",
+            "Known nonce: nonce k bị lộ trong một chữ ký",
+            "Partial nonce leakage: ghi chú lý thuyết",
+        ],
+        horizontal=False,
+    )
+
+
+    if st.button("⚡ Chạy mô phỏng tấn công", use_container_width=True):
         ok_nonce, nonce_msg = validate_nonce(k_reuse, ECDSA_PARAMS.n)
+
         if not ok_nonce:
             st.warning(nonce_msg)
             return
 
-        try:
-            r1, s1 = sign(ECDSA_PARAMS, d_victim, msg1.encode("utf-8"), k=k_reuse)
-            r2, s2 = sign(ECDSA_PARAMS, d_victim, msg2.encode("utf-8"), k=k_reuse)
-        except Exception as exc:
-            st.warning(f"Không tạo được chữ ký hợp lệ trên đường cong mô phỏng với tham số hiện tại: {exc}")
+        if attack_mode == "Partial nonce leakage: ghi chú lý thuyết":
+            st.info(
+                "Partial nonce leakage là trường hợp nonce k không bị lộ hoàn toàn, "
+                "nhưng rò rỉ một phần qua nhiều chữ ký, ví dụ qua side-channel hoặc RNG yếu. "
+                "Trong thực tế, dạng này có thể dẫn tới lattice attack. "
+                "Project này chỉ ghi chú lý thuyết, không demo lattice để tránh làm lệch trọng tâm."
+            )
+
+            st.dataframe(
+                pd.DataFrame([
+                    {
+                        "Kiểu lỗi": "Reused nonce",
+                        "Dữ liệu attacker cần": "Hai chữ ký dùng cùng k",
+                        "Kết quả": "Khôi phục k rồi khôi phục d",
+                        "Demo trong app": "Có",
+                    },
+                    {
+                        "Kiểu lỗi": "Known nonce",
+                        "Dữ liệu attacker cần": "Một chữ ký và nonce k bị lộ",
+                        "Kết quả": "Khôi phục d từ một chữ ký",
+                        "Demo trong app": "Có",
+                    },
+                    {
+                        "Kiểu lỗi": "Partial nonce leakage",
+                        "Dữ liệu attacker cần": "Nhiều chữ ký với k bị rò một phần",
+                        "Kết quả": "Có thể khôi phục d bằng kỹ thuật nâng cao như lattice attack",
+                        "Demo trong app": "Không, chỉ ghi chú",
+                    },
+                ]),
+                use_container_width=True,
+            )
+
             return
 
-        h1 = hash_message_to_int(msg1.encode("utf-8"), ECDSA_PARAMS.n)
-        h2 = hash_message_to_int(msg2.encode("utf-8"), ECDSA_PARAMS.n)
+        if attack_mode == "Reused nonce: dùng lại k cho hai chữ ký":
+            try:
+                r1, s1 = sign(ECDSA_PARAMS, d_victim, msg1.encode("utf-8"), k=k_reuse)
+                r2, s2 = sign(ECDSA_PARAMS, d_victim, msg2.encode("utf-8"), k=k_reuse)
+            except Exception as exc:
+                st.warning(
+                    f"Không tạo được chữ ký với k = {k_reuse}: {exc}. "
+                    "Toy curve quá nhỏ nên có thể gặp edge-case. App sẽ thử tìm một nonce hợp lệ khác."
+                )
 
-        st.dataframe(
-            pd.DataFrame(
-                [
+                auto_k, signatures = find_valid_nonce_for_messages(
+                    ECDSA_PARAMS,
+                    d_victim,
+                    [msg1, msg2],
+                )
+
+                if auto_k is None:
+                    st.error("Không tìm được nonce hợp lệ cho hai thông điệp hiện tại.")
+                    return
+
+                k_reuse = auto_k
+                (r1, s1), (r2, s2) = signatures
+                st.info(f"Đã tự chọn nonce hợp lệ k = {k_reuse} để tiếp tục demo.")
+
+            h1 = hash_message_to_int(msg1.encode("utf-8"), ECDSA_PARAMS.n)
+            h2 = hash_message_to_int(msg2.encode("utf-8"), ECDSA_PARAMS.n)
+
+            st.subheader("1. Hai chữ ký dùng cùng nonce")
+
+            st.dataframe(
+                pd.DataFrame([
                     {"Thông điệp": "msg1", "h": h1, "r": r1, "s": s1},
                     {"Thông điệp": "msg2", "h": h2, "r": r2, "s": s2},
-                ]
-            ),
-            use_container_width=True,
-        )
+                ]),
+                use_container_width=True,
+            )
 
-        can_recover, reason = can_run_reused_nonce_attack(msg1, msg2, h1, h2, r1, s1, r2, s2, ECDSA_PARAMS.n)
-        if not can_recover:
-            st.warning(reason)
-            return
+            can_recover, reason = can_run_reused_nonce_attack(
+                msg1,
+                msg2,
+                h1,
+                h2,
+                r1,
+                s1,
+                r2,
+                s2,
+                ECDSA_PARAMS.n,
+            )
 
-        s_diff_inv = safe_mod_inverse(s1 - s2, ECDSA_PARAMS.n)
-        r_inv = safe_mod_inverse(r1, ECDSA_PARAMS.n)
+            if not can_recover:
+                st.warning(reason)
+                return
 
-        if s_diff_inv is None or r_inv is None:
-            st.warning("Mẫu số không khả nghịch modulo n.")
-            return
+            s_diff_inv = safe_mod_inverse(s1 - s2, ECDSA_PARAMS.n)
+            r_inv = safe_mod_inverse(r1, ECDSA_PARAMS.n)
 
-        k_recovered = ((h1 - h2) * s_diff_inv) % ECDSA_PARAMS.n
-        d_recovered = ((s1 * k_recovered - h1) * r_inv) % ECDSA_PARAMS.n
+            if s_diff_inv is None or r_inv is None:
+                st.warning("Mẫu số không khả nghịch modulo n.")
+                return
 
-        result_rows = [
-            {"Giá trị": "k ban đầu", "Kết quả": k_reuse},
-            {"Giá trị": "k khôi phục", "Kết quả": k_recovered},
-            {"Giá trị": "d ban đầu", "Kết quả": d_victim},
-            {"Giá trị": "d khôi phục", "Kết quả": d_recovered},
-        ]
-        st.dataframe(pd.DataFrame(result_rows), use_container_width=True)
+            k_recovered = ((h1 - h2) * s_diff_inv) % ECDSA_PARAMS.n
+            d_recovered = ((s1 * k_recovered - h1) * r_inv) % ECDSA_PARAMS.n
 
-        if k_recovered == k_reuse and d_recovered == d_victim:
-            st.success("🎯 Tấn công thành công: đã khôi phục nonce và khóa bí mật.")
-        else:
-            st.error("Không khớp. Đây là edge case của đường cong mô phỏng / tham số hiện tại.")
+            st.subheader("2. Khôi phục nonce và private key")
+
+            st.dataframe(
+                pd.DataFrame([
+                    {"Giá trị": "k ban đầu", "Kết quả": k_reuse},
+                    {"Giá trị": "k khôi phục", "Kết quả": k_recovered},
+                    {"Giá trị": "d ban đầu", "Kết quả": d_victim},
+                    {"Giá trị": "d khôi phục", "Kết quả": d_recovered},
+                ]),
+                use_container_width=True,
+            )
+
+            if k_recovered == k_reuse and d_recovered == d_victim:
+                st.success("🎯 Tấn công thành công: đã khôi phục nonce và khóa bí mật.")
+            else:
+                st.error("Không khớp. Đây là edge-case của đường cong mô phỏng / tham số hiện tại.")
+
+        elif attack_mode == "Known nonce: nonce k bị lộ trong một chữ ký":
+            try:
+                r, s = sign(ECDSA_PARAMS, d_victim, msg1.encode("utf-8"), k=k_reuse)
+            except Exception as exc:
+                st.warning(
+                    f"Không tạo được chữ ký với k = {k_reuse}: {exc}. "
+                    "App sẽ thử tìm một nonce hợp lệ khác."
+                )
+
+                auto_k, signatures = find_valid_nonce_for_messages(
+                    ECDSA_PARAMS,
+                    d_victim,
+                    [msg1],
+                )
+
+                if auto_k is None:
+                    st.error("Không tìm được nonce hợp lệ cho thông điệp hiện tại.")
+                    return
+
+                k_reuse = auto_k
+                r, s = signatures[0]
+                st.info(f"Đã tự chọn nonce hợp lệ k = {k_reuse} để tiếp tục demo.")
+
+            h = hash_message_to_int(msg1.encode("utf-8"), ECDSA_PARAMS.n)
+
+            st.subheader("1. Một chữ ký có nonce bị lộ")
+
+            st.dataframe(
+                pd.DataFrame([
+                    {
+                        "Message": msg1,
+                        "h = H(m) mod n": h,
+                        "r": r,
+                        "s": s,
+                        "nonce k bị lộ": k_reuse,
+                    }
+                ]),
+                use_container_width=True,
+            )
+
+            st.latex(r"d' = (s k - h)r^{-1} \pmod n")
+
+            d_recovered, reason = recover_private_key_from_known_nonce(
+                h,
+                r,
+                s,
+                k_reuse,
+                ECDSA_PARAMS.n,
+            )
+
+            if d_recovered is None:
+                st.warning(reason)
+                return
+
+            st.subheader("2. Khôi phục private key từ nonce bị lộ")
+
+            st.dataframe(
+                pd.DataFrame([
+                    {"Giá trị": "d ban đầu", "Kết quả": d_victim},
+                    {"Giá trị": "d khôi phục", "Kết quả": d_recovered},
+                ]),
+                use_container_width=True,
+            )
+
+            if d_recovered == d_victim:
+                st.success("🎯 Tấn công thành công: chỉ cần biết nonce k của một chữ ký là khôi phục được private key.")
+            else:
+                st.error("Không khớp. Đây là edge-case của đường cong mô phỏng.")
 
     render_learning_summary(
-        "Tấn công dùng lại nonce",
+        "Tấn công liên quan đến nonce",
         [
-            "Nonce k phải là duy nhất cho mỗi chữ ký ECDSA.",
-            "Dùng lại k với hai thông điệp khác nhau tạo hai phương trình cùng chứa khóa bí mật.",
-            "Đường cong mô phỏng nhỏ có nhiều tình huống biên; bài học chính là kỷ luật triển khai.",
+            "Reused nonce: dùng lại cùng k cho hai thông điệp khác nhau có thể làm lộ k và private key d.",
+            "Known nonce: nếu k của một chữ ký bị lộ, private key d có thể bị khôi phục ngay từ công thức ECDSA.",
+            "Partial nonce leakage là hướng nâng cao: k chỉ rò một phần nhưng qua nhiều chữ ký vẫn có thể nguy hiểm.",
+            "Page 6 không phá ECDLP; nó minh họa rằng triển khai ECDSA sai có thể làm private key bay màu.",
         ],
     )
 
