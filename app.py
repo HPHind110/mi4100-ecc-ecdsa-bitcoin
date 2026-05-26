@@ -2360,59 +2360,114 @@ def demo_interactive_bitcoin_transaction_lab():
     init_tx_lab_state()
     lab = st.session_state.tx_lab
 
+    scenario_options = [
+        "Kịch bản đúng: Alice trả Bob",
+        "Sửa số tiền sau khi ký",
+        "Đổi người nhận sang Mallory sau khi ký",
+        "Mallory cố tiêu UTXO của Alice",
+        "Thay public key mở khóa bằng của Mallory",
+        "Tiêu cùng một UTXO hai lần",
+        "Chế độ tự do",
+    ]
+
+    saved_scenario = lab.get("selected_scenario", "Kịch bản đúng: Alice trả Bob")
+    if saved_scenario not in scenario_options:
+        saved_scenario = "Kịch bản đúng: Alice trả Bob"
+
     scenario = st.selectbox(
         "🎬 Kịch bản hướng dẫn",
-        [
-            "Kịch bản đúng: Alice trả Bob",
-            "Sửa số tiền sau khi ký",
-            "Mallory cố tiêu UTXO của Alice",
-            "Tiêu cùng một UTXO hai lần",
-            "Chế độ tự do",
-        ],
-        index=[
-            "Kịch bản đúng: Alice trả Bob",
-            "Sửa số tiền sau khi ký",
-            "Mallory cố tiêu UTXO của Alice",
-            "Tiêu cùng một UTXO hai lần",
-            "Chế độ tự do",
-        ].index(lab.get("selected_scenario", "Kịch bản đúng: Alice trả Bob")),
+        scenario_options,
+        index=scenario_options.index(saved_scenario),
     )
     lab["selected_scenario"] = scenario
 
-    scenario_steps = {
-        "Kịch bản đúng: Alice trả Bob": [
-            "Tạo UTXO cho Alice",
-            "Tạo giao dịch Alice -> Bob",
-            "Ký bằng khóa của Alice",
-            "Node kiểm tra giao dịch",
-            "Gửi/áp dụng giao dịch vào tập UTXO",
-        ],
-        "Sửa số tiền sau khi ký": [
-            "Tạo UTXO cho Alice",
-            "Tạo giao dịch Alice -> Bob",
-            "Ký bằng khóa của Alice",
-            "Sửa số tiền sau khi ký",
-            "Node kiểm tra giao dịch: dự kiến bị từ chối",
-        ],
-        "Mallory cố tiêu UTXO của Alice": [
-            "Tạo UTXO cho Alice",
-            "Tạo giao dịch cố tiêu UTXO của Alice",
-            "Ký bằng khóa của Mallory",
-            "Node kiểm tra giao dịch: dự kiến bị từ chối",
-        ],
-        "Tiêu cùng một UTXO hai lần": [
-            "Tạo UTXO cho Alice",
-            "Tạo giao dịch Alice -> Bob",
-            "Ký bằng khóa của Alice",
-            "Gửi lần đầu: dự kiến được chấp nhận",
-            "Gửi lại cùng giao dịch: dự kiến bị từ chối",
-        ],
-        "Chế độ tự do": ["Tự bấm các thao tác trong các tab bên dưới."],
+    scenario_guides = {
+        "Kịch bản đúng: Alice trả Bob": {
+            "Mục tiêu": "Cho thấy flow hợp lệ: Alice có UTXO, tạo giao dịch trả Bob, ký bằng khóa Alice, node kiểm tra và chấp nhận.",
+            "Các bước": [
+                {"Tab": "1️⃣ Ví & UTXO", "Thao tác": "Tạo UTXO cho Alice, ví dụ amount = 10", "Kết quả mong đợi": "Bảng UTXO có một khoản thuộc về Alice"},
+                {"Tab": "2️⃣ Tạo giao dịch", "Thao tác": "Chọn Alice là người gửi, chọn UTXO của Alice, chọn Bob là người nhận", "Kết quả mong đợi": "Có giao dịch nháp Alice → Bob"},
+                {"Tab": "3️⃣ Ký & kiểm tra", "Thao tác": "Chọn người ký là Alice, bấm ký giao dịch", "Kết quả mong đợi": "Giao dịch có chữ ký và public key của Alice"},
+                {"Tab": "3️⃣ Ký & kiểm tra", "Thao tác": "Bấm node kiểm tra giao dịch", "Kết quả mong đợi": "Node chấp nhận giao dịch"},
+                {"Tab": "3️⃣ Ký & kiểm tra", "Thao tác": "Bấm gửi / áp dụng vào tập UTXO", "Kết quả mong đợi": "UTXO cũ của Alice bị tiêu, UTXO mới của Bob xuất hiện"},
+            ],
+            "Kết luận": "Alice chứng minh quyền tiêu UTXO bằng chữ ký ECDSA, không cần tiết lộ private key.",
+        },
+        "Sửa số tiền sau khi ký": {
+            "Mục tiêu": "Cho thấy chữ ký gắn với dữ liệu transaction cụ thể. Sửa amount sau khi ký sẽ làm chữ ký cũ mất hiệu lực.",
+            "Các bước": [
+                {"Tab": "1️⃣ Ví & UTXO", "Thao tác": "Tạo UTXO cho Alice, ví dụ amount = 10", "Kết quả mong đợi": "Alice có UTXO chưa tiêu"},
+                {"Tab": "2️⃣ Tạo giao dịch", "Thao tác": "Tạo transaction Alice → Bob", "Kết quả mong đợi": "Có giao dịch nháp"},
+                {"Tab": "3️⃣ Ký & kiểm tra", "Thao tác": "Ký bằng Alice", "Kết quả mong đợi": "Giao dịch có chữ ký hợp lệ ban đầu"},
+                {"Tab": "4️⃣ Sửa phá", "Thao tác": "Nhập số tiền mới, ví dụ đổi 10 thành 15, rồi bấm áp dụng", "Kết quả mong đợi": "Output amount bị thay đổi sau khi ký"},
+                {"Tab": "4️⃣ Sửa phá", "Thao tác": "Bấm kiểm tra giao dịch đã bị sửa", "Kết quả mong đợi": "Node từ chối giao dịch"},
+            ],
+            "Kết luận": "ECDSA không ký một ý định mơ hồ, mà ký dữ liệu cụ thể. Đổi dữ liệu sau khi ký thì verify fail.",
+        },
+        "Đổi người nhận sang Mallory sau khi ký": {
+            "Mục tiêu": "Cho thấy attacker không thể đổi người nhận sau khi transaction đã được ký.",
+            "Các bước": [
+                {"Tab": "1️⃣ Ví & UTXO", "Thao tác": "Tạo UTXO cho Alice", "Kết quả mong đợi": "Alice có UTXO chưa tiêu"},
+                {"Tab": "2️⃣ Tạo giao dịch", "Thao tác": "Tạo transaction Alice → Bob", "Kết quả mong đợi": "Output ban đầu thuộc về Bob"},
+                {"Tab": "3️⃣ Ký & kiểm tra", "Thao tác": "Ký bằng Alice", "Kết quả mong đợi": "Transaction Alice → Bob có chữ ký hợp lệ"},
+                {"Tab": "4️⃣ Sửa phá", "Thao tác": "Bấm đổi người nhận sang Mallory", "Kết quả mong đợi": "Output bị đổi sang Mallory sau khi ký"},
+                {"Tab": "4️⃣ Sửa phá", "Thao tác": "Bấm kiểm tra giao dịch đã bị sửa", "Kết quả mong đợi": "Node từ chối giao dịch"},
+            ],
+            "Kết luận": "Đổi receiver làm dữ liệu transaction thay đổi, nên chữ ký Alice tạo trước đó không còn hợp lệ.",
+        },
+        "Mallory cố tiêu UTXO của Alice": {
+            "Mục tiêu": "Cho thấy người khác không thể dùng private key của mình để tiêu UTXO bị khóa bởi public key hash của Alice.",
+            "Các bước": [
+                {"Tab": "1️⃣ Ví & UTXO", "Thao tác": "Tạo UTXO cho Alice", "Kết quả mong đợi": "UTXO bị khóa bởi public key hash của Alice"},
+                {"Tab": "2️⃣ Tạo giao dịch", "Thao tác": "Tạo transaction tiêu UTXO của Alice", "Kết quả mong đợi": "Có giao dịch nháp tham chiếu UTXO Alice"},
+                {"Tab": "3️⃣ Ký & kiểm tra", "Thao tác": "Chọn người ký là Mallory rồi bấm ký", "Kết quả mong đợi": "Giao dịch có chữ ký/public key của Mallory"},
+                {"Tab": "3️⃣ Ký & kiểm tra", "Thao tác": "Bấm node kiểm tra giao dịch", "Kết quả mong đợi": "Node từ chối giao dịch"},
+            ],
+            "Kết luận": "Mallory có thể ký bằng khóa của Mallory, nhưng public key hash của Mallory không khớp điều kiện khóa của UTXO Alice.",
+        },
+        "Thay public key mở khóa bằng của Mallory": {
+            "Mục tiêu": "Cho thấy không thể thay public key trong unlocking data một cách tùy tiện.",
+            "Các bước": [
+                {"Tab": "1️⃣ Ví & UTXO", "Thao tác": "Tạo UTXO cho Alice", "Kết quả mong đợi": "UTXO khóa bởi public key hash của Alice"},
+                {"Tab": "2️⃣ Tạo giao dịch", "Thao tác": "Tạo transaction Alice → Bob", "Kết quả mong đợi": "Có giao dịch nháp hợp lệ về mặt cấu trúc"},
+                {"Tab": "3️⃣ Ký & kiểm tra", "Thao tác": "Ký bằng Alice", "Kết quả mong đợi": "Giao dịch có chữ ký và public key Alice"},
+                {"Tab": "4️⃣ Sửa phá", "Thao tác": "Bấm thay khóa công khai mở khóa bằng của Mallory", "Kết quả mong đợi": "Unlocking public key bị đổi sang Mallory"},
+                {"Tab": "4️⃣ Sửa phá", "Thao tác": "Bấm kiểm tra giao dịch đã bị sửa", "Kết quả mong đợi": "Node từ chối giao dịch"},
+            ],
+            "Kết luận": "Unlocking data phải khớp locking condition. Thay public key làm hash/public key không còn khớp với UTXO của Alice.",
+        },
+        "Tiêu cùng một UTXO hai lần": {
+            "Mục tiêu": "Cho thấy vai trò của UTXO set trong chống double spend.",
+            "Các bước": [
+                {"Tab": "1️⃣ Ví & UTXO", "Thao tác": "Tạo UTXO cho Alice", "Kết quả mong đợi": "Alice có UTXO chưa tiêu"},
+                {"Tab": "2️⃣ Tạo giao dịch", "Thao tác": "Tạo transaction Alice → Bob", "Kết quả mong đợi": "Có giao dịch nháp"},
+                {"Tab": "3️⃣ Ký & kiểm tra", "Thao tác": "Ký bằng Alice", "Kết quả mong đợi": "Giao dịch đã ký hợp lệ"},
+                {"Tab": "4️⃣ Sửa phá", "Thao tác": "Bấm thử tiêu hai lần giao dịch hiện tại", "Kết quả mong đợi": "Lần đầu được chấp nhận, lần hai bị từ chối"},
+            ],
+            "Kết luận": "Một UTXO chỉ được tiêu một lần. Sau lần tiêu đầu, UTXO không còn nằm trong trạng thái chưa tiêu.",
+        },
+        "Chế độ tự do": {
+            "Mục tiêu": "Tự thử các thao tác để hiểu cơ chế UTXO, ECDSA và node verification.",
+            "Các bước": [
+                {"Tab": "1️⃣ Ví & UTXO", "Thao tác": "Tạo UTXO cho Alice/Bob/Mallory", "Kết quả mong đợi": "Có dữ liệu đầu vào để thử"},
+                {"Tab": "2️⃣ Tạo giao dịch", "Thao tác": "Tạo transaction theo ý muốn", "Kết quả mong đợi": "Có giao dịch nháp"},
+                {"Tab": "3️⃣ Ký & kiểm tra", "Thao tác": "Thử ký bằng đúng hoặc sai người", "Kết quả mong đợi": "Node chấp nhận hoặc từ chối theo điều kiện khóa"},
+                {"Tab": "4️⃣ Sửa phá", "Thao tác": "Thử sửa amount, đổi receiver, thay public key hoặc double spend", "Kết quả mong đợi": "Quan sát node phản ứng"},
+            ],
+            "Kết luận": "Chế độ tự do dùng để tự kiểm tra hiểu biết sau khi đã đi qua các kịch bản mẫu.",
+        },
     }
 
-    with st.expander("✅ Checklist demo gợi ý", expanded=True):
-        for i, step in enumerate(scenario_steps[scenario], 1):
-            st.write(f"{i}. {step}")
+    with st.expander("✅ Hướng dẫn kịch bản đang chọn", expanded=True):
+        guide = scenario_guides[scenario]
+
+        st.markdown(f"**Mục tiêu:** {guide['Mục tiêu']}")
+        st.dataframe(pd.DataFrame(guide["Các bước"]), use_container_width=True, hide_index=True)
+        st.success(f"**Kết luận cần rút ra:** {guide['Kết luận']}")
+
+        st.caption(
+            "Gợi ý: nếu kết quả không giống kỳ vọng, hãy bấm “🧹 Reset phòng lab giao dịch” ở tab 1 rồi làm lại từ đầu."
+        )
 
     tabs = st.tabs(
         [
@@ -2543,23 +2598,39 @@ def demo_interactive_bitcoin_transaction_lab():
     with tabs[3]:
         st.subheader("Sửa phá / tấn công / tiêu hai lần")
 
+        st.caption(
+            "Tab này dùng để kiểm tra các tình huống sai: sửa transaction sau khi ký, "
+            "đổi người nhận, thay public key mở khóa, ký bằng Mallory hoặc thử tiêu hai lần cùng một UTXO."
+        )
+
+        # Cho phép Mallory ký giao dịch nháp ngay cả khi chưa có signed_tx.
+        if lab["draft_tx"] is not None:
+            with st.container(border=True):
+                st.markdown("#### 🦹 Mallory cố ký giao dịch nháp")
+
+                st.markdown(
+                    "Nút này lấy giao dịch nháp hiện tại và ký bằng private key của Mallory. "
+                    "Nếu giao dịch đang tiêu UTXO của Alice, node phải từ chối vì public key/hash của Mallory không khớp điều kiện khóa của Alice."
+                )
+
+                if st.button("🦹 Ký giao dịch nháp bằng Mallory", use_container_width=True):
+                    sign_lab_tx("Mallory")
+                    st.rerun()
+        else:
+            st.info("Chưa có giao dịch nháp. Qua tab 2 tạo giao dịch trước nếu muốn thử Mallory ký.")
+
         if lab["signed_tx"] is None:
-            st.info("Chưa có giao dịch đã ký. Qua tab 3 ký giao dịch trước.")
+            st.info(
+                "Chưa có giao dịch đã ký để sửa phá. "
+                "Qua tab 3 ký giao dịch trước, hoặc dùng nút Mallory bên trên nếu đã có giao dịch nháp."
+            )
         else:
             render_current_tx("Giao dịch đã ký hiện tại", lab["signed_tx"])
 
             col1, col2 = st.columns(2)
+
             with col1:
-                # if st.button("🔧 Sửa số tiền sau khi ký", use_container_width=True):
-                #     tx = copy.deepcopy(lab["signed_tx"])
-                #     tx.outputs[0] = TxOutput(
-                #         amount=int(tx.outputs[0].amount) + 1,
-                #         pubkey_hash=tx.outputs[0].pubkey_hash,
-                #     )
-                #     lab["signed_tx"] = tx
-                #     lab["last_verify_details"] = None
-                #     lab_log("Đã sửa số tiền sau khi ký.")
-                #     st.rerun()
+                st.markdown("#### 🔧 Sửa dữ liệu sau khi ký")
 
                 current_amount = int(lab["signed_tx"].outputs[0].amount)
 
@@ -2625,9 +2696,7 @@ def demo_interactive_bitcoin_transaction_lab():
                     st.rerun()
 
             with col2:
-                if st.button("🦹 Ký giao dịch nháp bằng Mallory", use_container_width=True):
-                    sign_lab_tx("Mallory")
-                    st.rerun()
+                st.markdown("#### 🧪 Kiểm tra / tiêu hai lần")
 
                 if st.button("♻️ Thử tiêu hai lần giao dịch hiện tại", use_container_width=True):
                     tx = lab["signed_tx"]
@@ -2656,9 +2725,10 @@ def demo_interactive_bitcoin_transaction_lab():
         "Phòng lab giao dịch Bitcoin mô phỏng",
         [
             "Chữ ký ECDSA không đứng một mình; trong mô hình này, nó là dữ liệu mở khóa dùng để chứng minh quyền tiêu một UTXO cụ thể.",
-            "Một giao dịch chỉ được chấp nhận khi UTXO được tham chiếu tồn tại, chưa bị tiêu, mã băm khóa công khai khớp điều kiện khóa và chữ ký ECDSA hợp lệ.",
-            "Sửa số tiền hoặc người nhận sau khi ký sẽ làm dữ liệu giao dịch thay đổi, khiến chữ ký cũ không còn hợp lệ.",
-            "Người khác không thể dùng khóa của họ để tiêu UTXO của Alice, vì mã băm khóa công khai không khớp điều kiện khóa của UTXO.",
+            "Một giao dịch chỉ được chấp nhận khi UTXO tồn tại, chưa bị tiêu, public key hash khớp điều kiện khóa và chữ ký ECDSA hợp lệ.",
+            "Sửa số tiền hoặc đổi người nhận sau khi ký sẽ làm dữ liệu giao dịch thay đổi, khiến chữ ký cũ không còn hợp lệ.",
+            "Mallory không thể tiêu UTXO của Alice bằng khóa của mình, vì public key hash không khớp điều kiện khóa của UTXO Alice.",
+            "Thay public key mở khóa sau khi ký cũng làm transaction bị từ chối, vì unlocking data không còn khớp với locking condition.",
             "Double spend bị từ chối vì cùng một UTXO không được tiêu hai lần trong tập UTXO mô phỏng.",
         ],
     )
