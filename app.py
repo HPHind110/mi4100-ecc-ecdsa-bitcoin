@@ -55,7 +55,7 @@ st.markdown(
     }
 
     [data-testid="stSidebar"] {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: #f8f9fa;
         padding-top: 18px;
     }
 
@@ -65,7 +65,17 @@ st.markdown(
     [data-testid="stSidebar"] p,
     [data-testid="stSidebar"] span,
     [data-testid="stSidebar"] label {
+        color: #262730 !important;
+    }
+
+    [data-testid="stSidebar"] button {
+        background-color: #667eea !important;
         color: white !important;
+        border: none !important;
+    }
+
+    [data-testid="stSidebar"] button:hover {
+        background-color: #764ba2 !important;
     }
 
     h1, h2, h3 {
@@ -1116,7 +1126,9 @@ def demo_big_picture():
 
     st.info(
         "Luận điểm trung tâm: đề tài này không bắt đầu từ Bitcoin. "
-        "Trọng tâm là ECC và ECDSA trong mật mã khóa công khai; Bitcoin là một case study thực tế cho việc dùng ECDSA để chứng minh quyền chi tiêu."
+        "Trọng tâm là ECC và ECDSA trong mật mã khóa công khai; "
+        "Bitcoin là case study cho chữ ký số trong môi trường không cần trusted third party. "
+        "Trong case study đó, ECDSA giúp chứng minh quyền chi tiêu UTXO mà không cần tiết lộ private key."
     )
 
     render_term_notes([
@@ -1211,7 +1223,7 @@ def demo_big_picture():
         },
         {
             "Câu hỏi": "3. Vì sao chọn Bitcoin làm case study?",
-            "Ý chính": "Bitcoin dùng ECDSA để chứng minh quyền chi tiêu UTXO mà không cần tiết lộ private key.",
+            "Ý chính": "Bitcoin là case study cho chữ ký số trong môi trường không cần trusted third party; ECDSA giúp chứng minh quyền chi tiêu UTXO mà không cần tiết lộ private key.",
             "Trang liên quan": "Page 5, Page 6",
         },
     ]
@@ -1290,7 +1302,7 @@ def demo_big_picture():
             "RSA, ElGamal/DH và ECC đều là các hướng public-key crypto, nhưng dựa trên các bài toán khó khác nhau.",
             "ECC đáng học vì nó dựa trên ECDLP: tính Q = dG thì nhanh, nhưng tìm d từ Q là rất khó khi tham số đủ lớn.",
             "ECDSA là một ứng dụng chữ ký số quan trọng của ECC.",
-            "Bitcoin được chọn làm case study vì nó dùng ECDSA để chứng minh quyền chi tiêu UTXO mà không để lộ private key.",
+            "Bitcoin được chọn làm case study vì nó dùng chữ ký số trong môi trường không cần trusted third party; ECDSA giúp chứng minh quyền chi tiêu UTXO mà không để lộ private key.",
         ],
     )
 
@@ -3560,6 +3572,11 @@ def render_bitcoin_case_study_overview():
         """
     )
 
+    st.info(
+        "Có thể hiểu trực giác: quyền chi tiêu được truyền từ người này sang người khác bằng chữ ký số. "
+        "Mỗi lần tiêu một UTXO, người chủ hiện tại ký dữ liệu giao dịch mới để chuyển giá trị sang điều kiện khóa mới."
+    )
+
     ownership_rows = [
         {
             "Lớp": "Ví / Wallet",
@@ -3644,7 +3661,88 @@ digraph {
         "mà tạo chữ ký để chứng minh quyền tiêu một UTXO cụ thể."
     )
 
-    st.markdown("## 3. Phòng lab tương tác")
+    st.markdown("## 3. Chữ ký số giải quyết phần nào, mạng node giải quyết phần nào?")
+
+    st.markdown(
+        """
+        Một chữ ký hợp lệ chỉ chứng minh được:
+
+        ```text
+        Người ký có private key tương ứng với public key đang mở khóa UTXO.
+        ```
+
+        Nhưng chỉ chữ ký thôi chưa đủ để trả lời câu hỏi:
+
+        ```text
+        UTXO này đã bị tiêu trong một giao dịch khác trước đó chưa?
+        ```
+
+        Vì vậy, trong tinh thần Bitcoin, cần tách hai lớp:
+        """
+    )
+
+    layer_rows = [
+        {
+            "Lớp": "Transaction validity",
+            "Câu hỏi": "Giao dịch này có hợp lệ không?",
+            "Node kiểm tra gì?": "UTXO tồn tại, chưa bị tiêu, public key hash khớp, chữ ký ECDSA hợp lệ.",
+            "Project có mô phỏng?": "Có, trong Page 6.",
+        },
+        {
+            "Lớp": "Shared transaction history",
+            "Câu hỏi": "Toàn mạng đồng ý giao dịch nào xảy ra trước?",
+            "Node/mạng cần gì?": "Giao dịch được công bố, đưa vào block, nối vào chain và được các node chấp nhận theo lịch sử chung.",
+            "Project có mô phỏng?": "Không. Đây là phần consensus ngoài phạm vi ECC/ECDSA.",
+        },
+    ]
+
+    st.dataframe(
+        pd.DataFrame(layer_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.graphviz_chart("""
+    digraph {
+        rankdir=LR;
+
+        node [
+            shape=box,
+            style="rounded,filled",
+            fillcolor="#F8FAFC",
+            color="#64748B",
+            fontname="Arial"
+        ];
+
+        edge [
+            color="#475569",
+            fontname="Arial"
+        ];
+
+        "Transaction\\npublic data"
+            -> "Node kiểm tra\\nUTXO + PubKeyHash + Signature";
+
+        "Node kiểm tra\\nUTXO + PubKeyHash + Signature"
+            -> "Valid transaction?";
+
+        "Valid transaction?"
+            -> "Đưa vào block\\ntrong mạng thật";
+
+        "Đưa vào block\\ntrong mạng thật"
+            -> "Lịch sử chung\\ncủa các node";
+
+        "Lịch sử chung\\ncủa các node"
+            -> "Double spend\\nbị loại";
+    }
+    """)
+
+    st.caption(
+        "Trong app này, ta mô phỏng lớp kiểm tra giao dịch hợp lệ. "
+        "Phần block, chain, proof-of-work, consensus và lịch sử chung của toàn mạng được nhắc để hiểu đúng tinh thần Bitcoin, "
+        "nhưng không triển khai vì nằm ngoài trọng tâm ECC/ECDSA."
+    )
+
+    st.markdown("## 4. Phòng lab tương tác")
 
     lab_rows = [
         {
@@ -3676,9 +3774,9 @@ def demo_interactive_bitcoin_transaction_lab():
     st.title("6. Bitcoin case study: ECDSA mở khóa UTXO")
 
     render_page_intro(
-        "ECDSA đi vào Bitcoin như thế nào?",
-        "Trong case study này, ECDSA được dùng để chứng minh người gửi có quyền tiêu một UTXO, mà không cần tiết lộ private key.",
-        "Người dùng tự tạo UTXO, tạo transaction, ký, verify, apply vào UTXO set, rồi thử các tình huống sửa phá và double spend.",
+        "ECDSA đi vào mô hình Bitcoin-like như thế nào?",
+        "ECDSA dùng để chứng minh quyền tiêu một UTXO: người tiêu ký dữ liệu giao dịch bằng private key, còn node kiểm tra bằng public key và điều kiện khóa.",
+        "Người dùng tự tạo UTXO, tạo transaction, ký, verify, apply vào UTXO set, rồi thử sửa transaction, sai khóa và double spend.",
     )
 
     st.warning(
@@ -3690,23 +3788,59 @@ def demo_interactive_bitcoin_transaction_lab():
     render_term_notes([
         (
             "Wallet / Ví",
-            "Trong demo, ví là bộ khóa của Alice, Bob, Mallory. Ví giữ private key, không trực tiếp chứa coin."
+            "Trong demo, ví là bộ khóa của Alice, Bob, Mallory. Ví giữ private key để ký, không trực tiếp chứa coin."
+        ),
+        (
+            "Node",
+            "Máy/chương trình tham gia mạng Bitcoin. Node kiểm tra transaction, kiểm tra block và duy trì bản sao lịch sử hợp lệ theo luật mạng."
+        ),
+        (
+            "Full node",
+            "Node tự kiểm tra luật đồng thuận và transaction validity. Trong demo, ta chỉ mô phỏng một phần nhỏ vai trò kiểm tra transaction của node."
         ),
         (
             "UTXO",
-            "Unspent Transaction Output: output chưa bị tiêu. Muốn tiêu phải tham chiếu đúng UTXO đó."
+            "Unspent Transaction Output: output chưa bị tiêu. Muốn tiêu phải tham chiếu đúng UTXO đó trong input của transaction mới."
+        ),
+        (
+            "Input",
+            "Phần của transaction dùng để tham chiếu UTXO cũ muốn tiêu. Input chứa OutPoint và dữ liệu mở khóa."
+        ),
+        (
+            "Output",
+            "Phần của transaction tạo ra UTXO mới. Output thường chứa số tiền và điều kiện khóa."
         ),
         (
             "OutPoint",
-            "Địa chỉ của một UTXO cũ, gồm txid và vị trí output."
+            "Địa chỉ của một UTXO cũ, thường gồm txid của transaction trước và vị trí output, gọi là vout."
+        ),
+        (
+            "txid",
+            "Mã định danh của transaction, thường được hiểu là hash của dữ liệu transaction. Trong demo là txid mô phỏng."
+        ),
+        (
+            "vout",
+            "Chỉ số vị trí của output trong transaction. Cặp txid:vout giúp xác định chính xác UTXO nào đang được tiêu."
+        ),
+        (
+            "P2PKH",
+            "Pay-to-Public-Key-Hash: kiểu khóa output truyền thống, trong đó UTXO bị khóa bởi mã băm của public key."
+        ),
+        (
+            "PubKeyHash",
+            "Mã băm của public key. Trong demo, UTXO khóa bằng PubKeyHash, người tiêu phải đưa public key khớp với hash này."
         ),
         (
             "Locking condition",
-            "Điều kiện khóa của UTXO. Trong demo là public key hash."
+            "Điều kiện khóa của UTXO. Trong demo là PubKeyHash; trong Bitcoin thật thường được biểu diễn bằng script hoặc spending condition."
         ),
         (
             "Unlocking data",
-            "Dữ liệu mở khóa. Trong demo là public key + ECDSA signature."
+            "Dữ liệu mở khóa trong input. Trong demo là public key + ECDSA signature."
+        ),
+        (
+            "Script",
+            "Cơ chế điều kiện chi tiêu trong Bitcoin thật. Demo này không triển khai Script đầy đủ, chỉ mô phỏng logic P2PKH ở mức giáo dục."
         ),
         (
             "Giao dịch chưa ký",
@@ -3714,11 +3848,11 @@ def demo_interactive_bitcoin_transaction_lab():
         ),
         (
             "Node verification",
-            "Node kiểm tra UTXO tồn tại, chưa bị tiêu, public key hash khớp và chữ ký ECDSA hợp lệ."
+            "Trong demo: node kiểm tra UTXO tồn tại, chưa bị tiêu, public key hash khớp và chữ ký ECDSA hợp lệ."
         ),
         (
             "Double spend",
-            "Cố dùng lại cùng một UTXO đã tiêu. Node phải từ chối lần tiêu sau."
+            "Cố tiêu cùng một UTXO nhiều hơn một lần. Trong demo, UTXO set từ chối lần tiêu sau."
         ),
     ])
 
