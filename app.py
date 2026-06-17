@@ -17,6 +17,15 @@ import plotly.express as px
 import pandas as pd
 
 from src.ecdsa_toy import sign, verify, hash_message_to_int
+from src.ecdlp_attacks import (
+    baby_step_giant_step_dlog as src_baby_step_giant_step_dlog,
+    brute_force_dlog as src_brute_force_dlog,
+)
+from src.field import mod_inv as field_mod_inv
+from src.nonce_attack import (
+    recover_nonce_from_reuse as src_recover_nonce_from_reuse,
+    recover_private_key_from_known_nonce as src_recover_private_key_from_known_nonce,
+)
 from src.shamir import naive_mul_add, shamir_mul
 from src.demo_params import DEMO_A, DEMO_B, DEMO_P, get_demo_params
 from src.bitcoin_tx import (
@@ -460,11 +469,10 @@ def point_to_text(P) -> str:
 
 
 def safe_mod_inverse(a: int, n: int):
-    a = a % n
-    if gcd(a, n) != 1:
+    if n <= 1:
         return None
     try:
-        return pow(a, -1, n)
+        return field_mod_inv(a, n)
     except ValueError:
         return None
 
@@ -631,13 +639,10 @@ def recover_private_key_from_known_nonce(h: int, r: int, s: int, k: int, n: int)
     Suy ra:
         d = (s*k - h) * r^(-1) mod n
     """
-    r_inv = safe_mod_inverse(r, n)
-
-    if r_inv is None:
-        return None, "Không thể khôi phục vì r không có nghịch đảo modulo n."
-
-    d_recovered = ((s * k - h) * r_inv) % n
-    return d_recovered, ""
+    try:
+        return src_recover_private_key_from_known_nonce(r, s, h, k, n), ""
+    except ValueError as exc:
+        return None, f"Không thể khôi phục: {exc}"
 
 
 def find_valid_nonce_for_messages(params, d: int, messages: list[str]):
@@ -2538,8 +2543,8 @@ def curve_add_point(curve, P, Q):
 
 def brute_force_dlog_demo(curve, G, Q, n: int):
     """Tìm d bằng brute force: thử từng k cho tới khi kG = Q."""
+    core_result = src_brute_force_dlog(curve, G, Q, max_k=n - 1)
     rows = []
-    recovered = None
 
     for k in range(0, n):
         candidate = curve.scalar_mul(k, G)
@@ -2551,16 +2556,13 @@ def brute_force_dlog_demo(curve, G, Q, n: int):
             "Trùng với Q?": match,
         })
 
-        if match and recovered is None:
-            recovered = k
-
     return {
         "method": "Brute force",
-        "recovered": recovered,
+        "recovered": core_result.recovered_k,
         "steps": len(rows),
         "memory": "O(1)",
         "rows": rows,
-        "success": recovered is not None,
+        "success": core_result.recovered_k is not None,
     }
 
 
@@ -2577,6 +2579,8 @@ def baby_step_giant_step_demo(curve, G, Q, n: int):
     - Thời gian: O(√n)
     - Bộ nhớ: O(√n)
     """
+    core_result = src_baby_step_giant_step_dlog(curve, G, Q, n=n)
+
     m = int(n ** 0.5)
     if m * m < n:
         m += 1
@@ -2626,7 +2630,7 @@ def baby_step_giant_step_demo(curve, G, Q, n: int):
 
     return {
         "method": "Baby-step Giant-step",
-        "recovered": recovered,
+        "recovered": core_result.recovered_k,
         "steps": len(baby_rows) + len(giant_rows),
         "memory": f"{len(baby_table)} điểm ≈ O(√n)",
         "m": m,
@@ -2634,7 +2638,7 @@ def baby_step_giant_step_demo(curve, G, Q, n: int):
         "giant_rows": giant_rows,
         "matched_i": matched_i,
         "matched_j": matched_j,
-        "success": recovered is not None,
+        "success": core_result.recovered_k is not None,
     }
 
 
@@ -4558,8 +4562,24 @@ def demo_reused_nonce_attack():
             st.warning("Mẫu số không khả nghịch modulo n, không thể khôi phục trong mẫu hiện tại.")
             return
 
-        k_recovered = ((h1 - h2) * s_diff_inv) % ECDSA_PARAMS.n
-        d_recovered = ((s1 * k_recovered - h1) * r_inv) % ECDSA_PARAMS.n
+        try:
+            k_recovered = src_recover_nonce_from_reuse(
+                h1,
+                h2,
+                s1,
+                s2,
+                ECDSA_PARAMS.n,
+            )
+            d_recovered = src_recover_private_key_from_known_nonce(
+                r1,
+                s1,
+                h1,
+                k_recovered,
+                ECDSA_PARAMS.n,
+            )
+        except ValueError as exc:
+            st.warning(f"Không thể khôi phục trong mẫu hiện tại: {exc}")
+            return
 
         st.markdown("### 5.2. Trace khôi phục k và d")
 
