@@ -26,7 +26,6 @@ message_tampered.txt
 /docs/context/
 
 # Local assistant / agent context
-/AGENTS.md
 
 # Editor / temporary files
 .DS_Store

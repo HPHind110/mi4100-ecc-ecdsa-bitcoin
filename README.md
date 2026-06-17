@@ -153,7 +153,9 @@ Một số file có thể khác tùy phiên bản repo, nhưng ý nghĩa chính 
 | `tests/` | Bộ test cho các thành phần toán và mô phỏng |
 | `docs/APP_USAGE_GUIDE.md` | Hướng dẫn sử dụng app chi tiết |
 | `docs/ECDSA_NONCE_ATTACK_AND_DEFENSE.md` | Ghi chú về nonce attack và phòng thủ triển khai |
-| `PROJECT_SCOPE_AND_REFERENCES.md` | Phạm vi project, bối cảnh Bitcoin hiện đại và tài liệu tham khảo |
+| `docs/PROJECT_SCOPE_AND_REFERENCES.md` | Phạm vi project, bối cảnh Bitcoin hiện đại và tài liệu tham khảo |
+| `AGENTS.md` | Chỉ dẫn chính thức cho agent khi làm việc trên repository |
+| `PROJECT_SCOPE_AND_REFERENCES.md` | File điều hướng ngắn ở root, trỏ về `docs/PROJECT_SCOPE_AND_REFERENCES.md` |
 
 ---
 
@@ -335,9 +337,11 @@ Các tài liệu phụ trong repo:
 
 | File | Nội dung |
 |---|---|
+| `AGENTS.md` | Chỉ dẫn chính thức cho agent khi inspect, sửa code, viết tài liệu và giữ giới hạn an toàn của project |
+| `docs/PROJECT_SCOPE_AND_REFERENCES.md` | Phạm vi project, bối cảnh Schnorr/Taproot/MuSig2 và reference theo nhóm |
 | `docs/APP_USAGE_GUIDE.md` | Hướng dẫn dùng từng page trong app |
 | `docs/ECDSA_NONCE_ATTACK_AND_DEFENSE.md` | Giải thích reused nonce, known nonce, partial leakage và hướng phòng thủ |
-| `PROJECT_SCOPE_AND_REFERENCES.md` | Phạm vi project, bối cảnh Schnorr/Taproot/MuSig2 và reference theo nhóm |
+| `PROJECT_SCOPE_AND_REFERENCES.md` | File điều hướng ngắn ở root, trỏ về tài liệu phạm vi trong `docs/` |
 
 Các nguồn tham khảo chính:
 
