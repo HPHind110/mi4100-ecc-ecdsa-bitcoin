@@ -1,6 +1,7 @@
 import pytest
 from src.demo_params import get_demo_params
 from src.ecdsa_toy import keygen, sign, verify
+from src.ecc import Point
 
 toy_params = get_demo_params()
 toy_curve = toy_params.curve
@@ -43,3 +44,34 @@ def test_ecdsa_fixed_k():
     assert verify(toy_params, Q, message, (r, s)) is True
 
     assert r == 4
+
+def test_keygen_rejects_invalid_private_key():
+    with pytest.raises(ValueError, match="private key d"):
+        keygen(toy_params, d=0)
+    with pytest.raises(ValueError, match="private key d"):
+        keygen(toy_params, d=toy_params.n)
+
+def test_sign_rejects_invalid_private_key():
+    with pytest.raises(ValueError, match="private key d"):
+        sign(toy_params, 0, b"message", k=3)
+    with pytest.raises(ValueError, match="private key d"):
+        sign(toy_params, toy_params.n, b"message", k=3)
+
+def test_sign_rejects_invalid_nonce_zero():
+    with pytest.raises(ValueError, match="not coprime"):
+        sign(toy_params, 2, b"message", k=0)
+
+def test_verify_with_wrong_public_key_fails():
+    d, Q = keygen(toy_params, d=2)
+    _, wrong_Q = keygen(toy_params, d=5)
+    signature = sign(toy_params, d, b"message", k=3)
+
+    assert verify(toy_params, Q, b"message", signature) is True
+    assert verify(toy_params, wrong_Q, b"message", signature) is False
+
+def test_verify_rejects_invalid_public_key_gracefully():
+    invalid_Q = Point(1, 4)
+    signature = sign(toy_params, 2, b"message", k=3)
+
+    assert toy_curve.is_on_curve(invalid_Q) is False
+    assert verify(toy_params, invalid_Q, b"message", signature) is False

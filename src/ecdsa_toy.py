@@ -23,6 +23,8 @@ def keygen(params: ECDSAParams, d: Optional[int] = None) -> Tuple[int, Point]:
             d = secrets.randbelow(params.n - 1) + 1
             if egcd(d, params.n)[0] == 1:
                 break
+    elif not 1 <= d < params.n:
+        raise ValueError("private key d must satisfy 1 <= d < n")
     
     Q = params.curve.scalar_mul(d, params.G)
     return d, Q
@@ -40,6 +42,9 @@ def sign(params: ECDSAParams, d: int, message: bytes, k: Optional[int] = None) -
     If k is provided, use it as the nonce (for testing/reused nonce demo).
     Returns signature (r, s).
     """
+    if not 1 <= d < params.n:
+        raise ValueError("private key d must satisfy 1 <= d < n")
+
     z = hash_message_to_int(message, params.n)
     from src.field import egcd
     
@@ -87,6 +92,9 @@ def verify(params: ECDSAParams, Q: Point, message: bytes, signature: Tuple[int, 
     """
     Verifies an ECDSA signature (r, s) for message against public key Q.
     """
+    if Q.is_infinity or not params.curve.is_on_curve(Q):
+        return False
+
     r, s = signature
     
     # 1. Check if r and s are in [1, n-1]

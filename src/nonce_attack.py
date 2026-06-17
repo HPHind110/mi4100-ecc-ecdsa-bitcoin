@@ -1,12 +1,17 @@
-from src.field import mod_div
+from src.field import mod_div, mod_inv
 from src.ecdsa_toy import keygen, sign, hash_message_to_int
 from src.demo_params import get_demo_params
+
+def _validate_modulus(n: int) -> None:
+    if n <= 1:
+        raise ValueError("n must be greater than 1")
 
 def recover_nonce_from_reuse(h1: int, h2: int, s1: int, s2: int, n: int) -> int:
     """
     Recovers the nonce k if it was used for two different messages.
     k = (h1 - h2) / (s1 - s2) mod n
     """
+    _validate_modulus(n)
     num = (h1 - h2) % n
     den = (s1 - s2) % n
     return mod_div(num, den, n)
@@ -16,8 +21,29 @@ def recover_private_key_from_nonce(h: int, r: int, s: int, k: int, n: int) -> in
     Recovers the private key d given the nonce k.
     d = (s * k - h) / r mod n
     """
-    num = (s * k - h) % n
-    return mod_div(num, r, n)
+    return recover_private_key_from_known_nonce(r=r, s=s, z=h, k=k, n=n)
+
+def recover_private_key_from_known_nonce(r: int, s: int, z: int, k: int, n: int) -> int:
+    """
+    Recover the toy ECDSA private key when nonce k is known.
+
+    This demonstrates the educational formula:
+
+        d = r^-1 * (s*k - z) mod n
+
+    It is only for toy/local nonce-failure demos. It must not be used with
+    real Bitcoin keys, wallet data, or production cryptographic systems.
+    """
+    _validate_modulus(n)
+    if r % n == 0:
+        raise ValueError("r must be non-zero modulo n")
+    if not 1 <= s < n:
+        raise ValueError("s must satisfy 1 <= s < n")
+    if k % n == 0:
+        raise ValueError("k must be non-zero modulo n")
+
+    num = (s * k - z) % n
+    return (mod_inv(r, n) * num) % n
 
 def demo_reused_nonce_attack():
     """
