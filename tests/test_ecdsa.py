@@ -61,6 +61,32 @@ def test_sign_rejects_invalid_nonce_zero():
     with pytest.raises(ValueError, match="not coprime"):
         sign(toy_params, 2, b"message", k=0)
 
+def test_sign_rejects_nonce_not_invertible_mod_n():
+    with pytest.raises(ValueError, match="not coprime"):
+        sign(toy_params, 2, b"message", k=toy_params.n)
+
+def test_sign_rejects_nonce_that_produces_zero_s():
+    with pytest.raises(ValueError, match="s=0"):
+        sign(toy_params, 2, b"\x00", k=5)
+
+def test_verify_rejects_out_of_range_signature_values():
+    _, Q = keygen(toy_params, d=2)
+    message = b"message"
+
+    assert verify(toy_params, Q, message, (0, 1)) is False
+    assert verify(toy_params, Q, message, (1, 0)) is False
+    assert verify(toy_params, Q, message, (toy_params.n, 1)) is False
+    assert verify(toy_params, Q, message, (1, toy_params.n)) is False
+
+def test_verify_rejects_invalid_signature_shape_and_type():
+    _, Q = keygen(toy_params, d=2)
+    message = b"message"
+
+    assert verify(toy_params, Q, message, (1,)) is False
+    assert verify(toy_params, Q, message, (1, 2, 3)) is False
+    assert verify(toy_params, Q, message, None) is False
+    assert verify(toy_params, Q, message, ("1", 2)) is False
+
 def test_verify_with_wrong_public_key_fails():
     d, Q = keygen(toy_params, d=2)
     _, wrong_Q = keygen(toy_params, d=5)
@@ -75,3 +101,8 @@ def test_verify_rejects_invalid_public_key_gracefully():
 
     assert toy_curve.is_on_curve(invalid_Q) is False
     assert verify(toy_params, invalid_Q, b"message", signature) is False
+
+def test_verify_rejects_public_key_at_infinity():
+    signature = sign(toy_params, 2, b"message", k=3)
+
+    assert verify(toy_params, Point(None, None), b"message", signature) is False

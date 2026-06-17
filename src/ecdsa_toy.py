@@ -71,19 +71,19 @@ def sign(params: ECDSAParams, d: int, message: bytes, k: Optional[int] = None) -
         # 3. s = k^-1 * (z + r*d) mod n
         try:
             k_inv = mod_inv(curr_k, params.n)
-            s = (k_inv * (z + r * d)) % params.n
-            if egcd(s, params.n)[0] != 1:
-                if k is not None:
-                    raise ValueError(f"Provided k={k} results in s={s} which is not coprime to n={params.n}")
-                continue
         except ValueError:
             if k is not None:
                 raise ValueError("Provided k has no modular inverse mod n")
             continue
-            
+
+        s = (k_inv * (z + r * d)) % params.n
         if s == 0:
             if k is not None:
                 raise ValueError("Provided k results in s=0")
+            continue
+        if egcd(s, params.n)[0] != 1:
+            if k is not None:
+                raise ValueError(f"Provided k={k} results in s={s} which is not coprime to n={params.n}")
             continue
             
         return r, s
@@ -92,10 +92,17 @@ def verify(params: ECDSAParams, Q: Point, message: bytes, signature: Tuple[int, 
     """
     Verifies an ECDSA signature (r, s) for message against public key Q.
     """
+    if not isinstance(Q, Point):
+        return False
     if Q.is_infinity or not params.curve.is_on_curve(Q):
         return False
 
-    r, s = signature
+    try:
+        r, s = signature
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(r, int) or not isinstance(s, int):
+        return False
     
     # 1. Check if r and s are in [1, n-1]
     if not (1 <= r < params.n and 1 <= s < params.n):
