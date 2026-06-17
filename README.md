@@ -333,6 +333,21 @@ Bitcoin case study minh họa quyền chi tiêu UTXO ở mức giáo dục.
 
 ## 11. Tài liệu nên đọc thêm
 
+## Tài liệu hỗ trợ báo cáo
+
+Các file nên dùng khi viết báo cáo, chuẩn bị demo và kiểm thử thủ công:
+
+| File | Nội dung |
+|---|---|
+| `AGENTS.md` | Chỉ dẫn chính thức cho agent và giới hạn an toàn của project |
+| `docs/PROJECT_SCOPE_AND_REFERENCES.md` | Phạm vi project, bối cảnh Bitcoin hiện đại và tài liệu tham khảo |
+| `docs/APP_USAGE_GUIDE.md` | Hướng dẫn dùng từng page trong app |
+| `docs/ECDSA_NONCE_ATTACK_AND_DEFENSE.md` | Ghi chú nonce attack và phòng thủ triển khai |
+| `docs/IMPLEMENTATION_AND_TESTING.md` | Tóm tắt kiến trúc, kiểm thử, giới hạn demo và wording an toàn |
+| `docs/MANUAL_SMOKE_TEST_CHECKLIST.md` | Checklist kiểm thử thủ công Streamlit trước khi demo/nộp |
+
+---
+
 Các tài liệu phụ trong repo:
 
 | File | Nội dung |
